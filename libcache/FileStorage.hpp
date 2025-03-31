@@ -118,24 +118,24 @@ public:
 
 	std::shared_ptr<ObjectType> getObject(const ObjectUIDType& uidObject)
 	{
-		//char* szBuffer = new char[uidObject.m_uid.FATPOINTER.m_ptrFile.m_nSize + 1];
-		//memset(szBuffer, '\0', uidObject.m_uid.FATPOINTER.m_ptrFile.m_nSize + 1);
+		char* szBuffer = new char[uidObject.getPersistentObjectSize() + 1];
+		memset(szBuffer, '\0', uidObject.getPersistentObjectSize() + 1);
 
 #ifdef __CONCURRENT__
 		std::unique_lock<std::shared_mutex> lock_file_storage(m_mtxStorage);
 #endif //__CONCURRENT__
 
 		m_fsStorage.seekg(uidObject.getPersistentPointerValue());
-		std::shared_ptr<ObjectType> ptrObject = std::make_shared<ObjectType>(m_fsStorage);
-		//m_fsStorage.read(szBuffer, uidObject.m_uid.FATPOINTER.m_ptrFile.m_nSize);
-
+		//std::shared_ptr<ObjectType> ptrObject = std::make_shared<ObjectType>(m_fsStorage);
+		m_fsStorage.read(szBuffer, uidObject.getPersistentObjectSize());
+		std::shared_ptr<ObjectType> ptrObject = std::make_shared<ObjectType>(szBuffer);
 #ifdef __CONCURRENT__
 		lock_file_storage.unlock();
 #endif //__CONCURRENT__
 
 		//ptrObject->setDirtyFlag(false);
 		//std::shared_ptr<ObjectType> ptrObject = std::make_shared<ObjectType>(szBuffer);
-		//delete[] szBuffer;
+		delete[] szBuffer;
 
 		return ptrObject;
 	}
@@ -150,8 +150,8 @@ public:
 		uint32_t nBufferSize = 0;
 		uint8_t uidObjectType = 0;
 		
-		//char* szBuffer = NULL;
-		//ptrObject->serialize(szBuffer, uidObjectType, nBufferSize);
+		char* szBuffer = NULL;
+		ptrObject->serialize(szBuffer, uidObjectType, nBufferSize);
 
 		size_t nOffset = m_nNextBlock * m_nBlockSize;
 
@@ -160,10 +160,10 @@ public:
 #endif //__CONCURRENT__
 
 		m_fsStorage.seekp(nOffset);
-		ptrObject->serialize(m_fsStorage, uidObjectType, nBufferSize);
-		//m_fsStorage.write(szBuffer, nBufferSize);
+		//ptrObject->serialize(m_fsStorage, uidObjectType, nBufferSize);
+		m_fsStorage.write(szBuffer, nBufferSize);
 		m_fsStorage.flush();	// how about flushing after enough bytes are written?
-
+		//m_fsStorage.flush();
 		//size_t nNextBlockOld = m_nNextBlock;
 		//size_t nRequiredBlocks = std::ceil((nBufferSize + sizeof(uint8_t)) / (float)m_nBlockSize);
 		//for (int idx = 0; idx < nRequiredBlocks; idx++)
@@ -176,9 +176,16 @@ public:
 		lock_file_storage.unlock();
 #endif //__CONCURRENT__
 
-		//delete[] szBuffer;
-
+		
 		ObjectUIDType::createAddressFromFileOffset(uidUpdated, uidObject.getObjectType(), nOffset, nBufferSize);
+
+		//char* _szBuffer = new char[uidUpdated.getPersistentObjectSize() + 1];
+		//memset(_szBuffer, '\0', uidUpdated.getPersistentObjectSize() + 1);
+		//m_fsStorage.seekg(uidUpdated.getPersistentPointerValue());
+		//m_fsStorage.read(_szBuffer, uidUpdated.getPersistentObjectSize());
+		//std::shared_ptr<ObjectType> _ptrObject = std::make_shared<ObjectType>(_szBuffer);
+		//delete[] _szBuffer;
+		delete[] szBuffer;
 
 		return CacheErrorCode::Success;
 	}

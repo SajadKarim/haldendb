@@ -46,6 +46,7 @@ private:
     std::optional<ObjectUIDType> m_uidRootNode;
 
     ObjectTypePtr m_ptrRootNode;
+    std::shared_mutex m_mutex;
 
 #ifdef __CONCURRENT__
     mutable std::shared_mutex m_mutex;
@@ -75,6 +76,7 @@ public:
         //m_ptrCache->template createObjectOfType<DefaultNodeType>(m_uidRootNode);
         m_ptrCache->template createObjectOfType__<DefaultNodeType>(m_ptrRootNode, m_uidRootNode);
         m_ptrRootNode->hook_(&m_ptrRootNode);
+        //m_ptrRootNode->mtx(m_mutex);
         //m_ptrRootNode->unhook_();
 
     }
@@ -94,6 +96,8 @@ public:
         ObjectUIDType uidLastNode, uidCurrentNode;  // TODO: make Optional!
         ObjectTypePtr ptrLastNode = nullptr, ptrCurrentNode = nullptr;
 
+        //IndexNodeType::XYZ abc;
+
         KeyType pivotKey;
         std::optional<ObjectUIDType> uidRHSChildNode, uidLHSChildNode;
         ObjectTypePtr ptrRHSChildNode = nullptr, ptrLHSChildNode = nullptr;
@@ -105,8 +109,11 @@ public:
         vtLocks.emplace_back(std::unique_lock<std::shared_mutex>(m_mutex));
 #endif //__CONCURRENT__
 
+        // int keep index.. of internal node ot update prt.
+
         uidCurrentNode = m_uidRootNode.value();
         ptrCurrentNode = m_ptrRootNode;
+
         do
         {
 #ifdef __TREE_WITH_CACHE__
@@ -115,11 +122,13 @@ public:
             {
                 m_ptrCache->getObject(uidCurrentNode, ptrCurrentNode, uidUpdated);
 
+                // earlier indexnodes only had UID, now it contains pointers along side as well.. so updating the pointer. but it iterates again. should not we keep the pointer directly as well?
+                // check for last node..!!!
                 std::shared_ptr<IndexNodeType> _ptr = std::get<std::shared_ptr<IndexNodeType>>(ptrLastNode->getInnerData());
                 _ptr->template updateChildUID_<ObjectType>(ptrCurrentNode, uidCurrentNode, uidCurrentNode);
 
+                // as mentioned above..
                 // todo.. should be hooked here..
-
                 //what if m_ptrRootnode is null!
             }
 #else //__TREE_WITH_CACHE__
@@ -415,7 +424,9 @@ public:
                 ObjectTypePtr ptrLastNode = vtAccessedNodes.size() > 0 ? vtAccessedNodes[vtAccessedNodes.size() - 1].second : nullptr;
                 if (ptrLastNode != nullptr)
                 {
-                    std::shared_ptr<IndexNodeType> _ptr = std::get<std::shared_ptr<IndexNodeType>>(ptrLastNode->getInnerData());
+                    IndexNodeType* _ptr = reinterpret_cast<IndexNodeType*>(ptrLastNode->_ptrobj);
+
+                    //std::shared_ptr<IndexNodeType> _ptr = std::get<std::shared_ptr<IndexNodeType>>(ptrLastNode->getInnerData());
                     _ptr->template updateChildUID_<ObjectType>(ptrCurrentNode, uidCurrentNode, uidCurrentNode);
                 }
                 else
@@ -865,17 +876,22 @@ public:
         m_ptrCache->getObject(m_uidRootNode.value(), ptrRootNode);
 #endif //__TREE_WITH_CACHE__
 
-        if (std::holds_alternative<std::shared_ptr<IndexNodeType>>(ptrRootNode->getInnerData()))
+        if (ptrRootNode->_ptrobjtype == IndexNodeType::UID)
         {
-            std::shared_ptr<IndexNodeType> ptrIndexNode = std::get<std::shared_ptr<IndexNodeType>>(ptrRootNode->getInnerData());
+            IndexNodeType* _ptr = reinterpret_cast<IndexNodeType*>(ptrRootNode->_ptrobj);
+        //if (std::holds_alternative<std::shared_ptr<IndexNodeType>>(ptrRootNode->getInnerData()))
+        //{
+            
+            //std::shared_ptr<IndexNodeType> ptrIndexNode = std::get<std::shared_ptr<IndexNodeType>>(ptrRootNode->getInnerData());
 
-            ptrIndexNode->template print<CacheType, ObjectTypePtr>(os, m_ptrCache, 0, prefix);
+            _ptr->template print<CacheType, ObjectTypePtr>(os, m_ptrCache, 0, prefix);
         }
-        else if (std::holds_alternative<std::shared_ptr<DataNodeType>>(ptrRootNode->getInnerData()))
+        else //if (std::holds_alternative<std::shared_ptr<DataNodeType>>(ptrRootNode->getInnerData()))
         {
-            std::shared_ptr<DataNodeType> ptrDataNode = std::get<std::shared_ptr<DataNodeType>>(ptrRootNode->getInnerData());
+            DataNodeType* _ptr = reinterpret_cast<DataNodeType*>(ptrRootNode->_ptrobj);
+            //std::shared_ptr<DataNodeType> ptrDataNode = std::get<std::shared_ptr<DataNodeType>>(ptrRootNode->getInnerData());
 
-            ptrDataNode->print(os, 0, prefix);
+            _ptr->print(os, 0, prefix);
         }
 
 #ifdef __TREE_WITH_CACHE__

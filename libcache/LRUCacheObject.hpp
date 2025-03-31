@@ -81,7 +81,7 @@ public:
 	std::shared_ptr<LRUCacheObject>* hook;
 	bool m_bDirty;
 	ValueCoreTypesWrapper m_objData;
-	std::shared_mutex m_mtx;
+	std::shared_mutex* m_mtx;
 
 	void* _ptrobj;
 	uint8_t _ptrobjtype;
@@ -93,7 +93,8 @@ public:
 public:
 	~LRUCacheObject()
 	{
-		resetVaraint(m_objData);
+		//resetVaraint(m_objData);
+		delete _ptrobj;
 	}
 
 
@@ -142,7 +143,7 @@ public:
 		, m_ptrPrev(nullptr)
 		, hook(NULL)
 	{
-		CoreTypesMarshaller::template deserialize<ValueCoreTypesWrapper, ValueCoreTypes...>(fs, m_objData);
+		CoreTypesMarshaller::template deserialize_<ValueCoreTypesWrapper, ValueCoreTypes...>(fs, _ptrobj);
 	}
 
 	LRUCacheObject(/*const ObjectUIDType& uidObject, */const char* szBuffer)
@@ -151,12 +152,17 @@ public:
 		, m_ptrPrev(nullptr)
 		, hook(NULL)
 	{
-		CoreTypesMarshaller::template deserialize<ValueCoreTypesWrapper, ValueCoreTypes...>(szBuffer, m_objData);
+		CoreTypesMarshaller::template deserialize__<ValueCoreTypesWrapper, ValueCoreTypes...>(szBuffer, _ptrobj, _ptrobjtype);
 	}
 
 	inline void hook_(std::shared_ptr<LRUCacheObject>* ref)
 	{
 		hook = ref;
+	}
+
+	inline void mtx(std::shared_mutex& mtx)
+	{
+		m_mtx = &mtx;
 	}
 
 	inline void unhook_()
@@ -174,12 +180,14 @@ public:
 
 	inline void serialize(std::fstream& fs, uint8_t& uidObject, uint32_t& nBufferSize)
 	{
-		CoreTypesMarshaller::template serialize<ValueCoreTypes...>(fs, m_objData, uidObject, nBufferSize);
+		//CoreTypesMarshaller::template serialize<ValueCoreTypes...>(fs, m_objData, uidObject, nBufferSize);
+		CoreTypesMarshaller::template serialize_<ValueCoreTypes...>(fs, _ptrobj, _ptrobjtype, nBufferSize);
+		uidObject = _ptrobjtype;
 	}
 
 	inline void serialize(char*& szBuffer, uint8_t& uidObject, uint32_t& nBufferSize)
 	{
-		CoreTypesMarshaller::template serialize<ValueCoreTypes...>(szBuffer, m_objData, uidObject, nBufferSize);
+		CoreTypesMarshaller::template serialize__<ValueCoreTypes...>(szBuffer, _ptrobj, _ptrobjtype, nBufferSize);
 	}
 
 	inline ObjectUIDType getUID() const

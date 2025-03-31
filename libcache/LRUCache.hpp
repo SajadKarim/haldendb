@@ -1123,7 +1123,7 @@ private:
 
 	inline void flushItemsToStorage()
 	{
-		return;
+		//return;
 #ifdef __CONCURRENT__
 		std::vector<std::pair<ObjectUIDType, std::pair<std::optional<ObjectUIDType>, std::shared_ptr<ObjectType>>>> vtObjects;
 

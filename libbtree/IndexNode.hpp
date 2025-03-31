@@ -29,18 +29,25 @@ private:
 	typedef std::variant<std::shared_ptr<DataNodeType>, std::shared_ptr<SelfType>> ValueCoreTypesWrapper;
 	typedef LRUCacheObject<ObjectUIDType, TypeMarshaller, DataNodeType, SelfType> CacheObject;
 
+public:
 	struct XYZ {
 		ObjectUIDType uid;
+
+		std::shared_mutex m_mtx;
+		ObjectUIDType uid_updated;
+
 		std::shared_ptr<CacheObject> ptr;
 
 		XYZ() {
 
 		}
+		
 		XYZ(const ObjectUIDType& _uid, const std::shared_ptr<CacheObject> _obj)
 		{
 			uid = _uid;
 			ptr = _obj;
 			_obj->hook_(&ptr);
+			_obj->mtx(m_mtx);
 		}
 
 		// Copy constructor
@@ -49,7 +56,10 @@ private:
 			ptr = other.ptr;
 			if (ptr) {
 				ptr->hook_(&ptr);
+				ptr->mtx(m_mtx);
 			}
+			
+			//m_mtx = ptr.m_mtx;
 		}
 
 		// Assignment operator
@@ -59,6 +69,8 @@ private:
 				ptr = other.ptr;
 				if (ptr) {
 					ptr->hook_(&ptr);
+					
+					ptr->mtx(m_mtx);
 				}
 			}
 			return *this;
@@ -305,7 +317,7 @@ public:
 
 			for (auto it = m_vtChildren.begin(); it != m_vtChildren.end(); it++)
 			{
-				assert(((* it).uid).getMediaType() >= 2);
+				//assert(((* it).uid).getMediaType() >= 2);
 				assert((*it).ptr == nullptr);
 			}
 #ifdef __VALIDITY_CHECK__
@@ -433,13 +445,20 @@ public:
 		const KeyType* key = nullptr;
 		if (std::holds_alternative<std::shared_ptr<SelfType>>(ptrChildNode->getInnerData()))
 		{
-			std::shared_ptr<SelfType> ptrIndexNode = std::get<std::shared_ptr<SelfType>>(ptrChildNode->getInnerData());
-			key = &ptrIndexNode->getFirstChild();
+			SelfType* _ptr = reinterpret_cast<SelfType*>(ptrChildNode->_ptrobj);
+			key = &_ptr->getFirstChild();
+
+			//std::shared_ptr<SelfType> ptrIndexNode = std::get<std::shared_ptr<SelfType>>(ptrChildNode->getInnerData());
+			//key = &ptrIndexNode->getFirstChild();
 		}
 		else //if (std::holds_alternative<std::shared_ptr<DataNodeType>>(ptrChildNode->getInnerData()))
 		{
-			std::shared_ptr<DataNodeType> ptrDataNode = std::get<std::shared_ptr<DataNodeType>>(ptrChildNode->getInnerData());
-			key = &ptrDataNode->getFirstChild();
+
+			DataNodeType* _ptr = reinterpret_cast<DataNodeType*>(ptrChildNode->_ptrobj);
+			key = &_ptr->getFirstChild();
+
+			//std::shared_ptr<DataNodeType> ptrDataNode = std::get<std::shared_ptr<DataNodeType>>(ptrChildNode->getInnerData());
+			//key = &ptrDataNode->getFirstChild();
 		}
 
 		auto it = std::upper_bound(m_vtPivots.begin(), m_vtPivots.end(), *key);
@@ -468,13 +487,19 @@ public:
 		const KeyType* key = nullptr;
 		if (std::holds_alternative<std::shared_ptr<SelfType>>(ptrChildNode->getInnerData()))
 		{
-			std::shared_ptr<SelfType> ptrIndexNode = std::get<std::shared_ptr<SelfType>>(ptrChildNode->getInnerData());
-			key = &ptrIndexNode->getFirstChild();
+			SelfType* _ptr = reinterpret_cast<SelfType*>(ptrChildNode->_ptrobj);
+			key = &_ptr->getFirstChild();
+
+			//std::shared_ptr<SelfType> ptrIndexNode = std::get<std::shared_ptr<SelfType>>(ptrChildNode->getInnerData());
+			//key = &ptrIndexNode->getFirstChild();
 		}
 		else //if (std::holds_alternative<std::shared_ptr<DataNodeType>>(ptrChildNode->getInnerData()))
 		{
-			std::shared_ptr<DataNodeType> ptrDataNode = std::get<std::shared_ptr<DataNodeType>>(ptrChildNode->getInnerData());
-			key = &ptrDataNode->getFirstChild();
+			DataNodeType* _ptr = reinterpret_cast<DataNodeType*>(ptrChildNode->_ptrobj);
+			key = &_ptr->getFirstChild();
+
+			//std::shared_ptr<DataNodeType> ptrDataNode = std::get<std::shared_ptr<DataNodeType>>(ptrChildNode->getInnerData());
+			//key = &ptrDataNode->getFirstChild();
 		}
 
 		auto it = std::upper_bound(m_vtPivots.begin(), m_vtPivots.end(), *key);
@@ -485,6 +510,7 @@ public:
 		//m_vtChildren[index].uid = uidNew;
 		m_vtChildren[index].ptr = ptrChildNode;
 		ptrChildNode->hook_(&m_vtChildren[index].ptr);
+		ptrChildNode->mtx(m_vtChildren[index].m_mtx);
 
 #ifdef __TRACK_CACHE_FOOTPRINT__
 		return 0;
@@ -1202,15 +1228,19 @@ public:
 
 			os << std::endl;
 
-			if (std::holds_alternative<shared_ptr<SelfType>>(ptrNode->getInnerData()))
+			if (ptrNode->_ptrobjtype == SelfType::UID)
+			//if (std::holds_alternative<shared_ptr<SelfType>>(ptrNode->getInnerData()))
 			{
-				shared_ptr<SelfType> ptrIndexNode = std::get<shared_ptr<SelfType>>(ptrNode->getInnerData());
-				ptrIndexNode->template print<CacheType, CacheObjectType>(os, ptrCache, nLevel + 1, stPrefix);
+				SelfType* _ptr = reinterpret_cast<SelfType*>(ptrNode->_ptrobj);
+				//shared_ptr<SelfType> ptrIndexNode = std::get<shared_ptr<SelfType>>(ptrNode->getInnerData());
+				_ptr->template print<CacheType, CacheObjectType>(os, ptrCache, nLevel + 1, stPrefix);
 			}
 			else //if (std::holds_alternative<shared_ptr<DataNodeType>>(ptrNode->getInnerData()))
 			{
-				shared_ptr<DataNodeType> ptrDataNode = std::get<shared_ptr<DataNodeType>>(ptrNode->getInnerData());
-				ptrDataNode->print(os, nLevel + 1, stPrefix);
+				DataNodeType* _ptr = reinterpret_cast<DataNodeType*>(ptrNode->_ptrobj);
+
+				//shared_ptr<DataNodeType> ptrDataNode = std::get<shared_ptr<DataNodeType>>(ptrNode->getInnerData());
+				_ptr->print(os, nLevel + 1, stPrefix);
 			}
 
 #ifdef __TREE_WITH_CACHE__
