@@ -28,7 +28,7 @@ class LRUCache : public ICallback
 public:
 	typedef StorageType::ObjectUIDType ObjectUIDType;
 	typedef StorageType::ObjectType ObjectType;
-	typedef std::shared_ptr<ObjectType> ObjectTypePtr;
+	typedef ObjectType* ObjectTypePtr;
 
 private:
 	/*struct Item
@@ -57,8 +57,8 @@ private:
 
 	ICallback* m_ptrCallback;
 
-	std::shared_ptr<ObjectType> m_ptrHead;
-	std::shared_ptr<ObjectType> m_ptrTail;
+	ObjectTypePtr m_ptrHead;
+	ObjectTypePtr m_ptrTail;
 
 	std::unique_ptr<StorageType> m_ptrStorage;
 
@@ -90,8 +90,8 @@ public:
 		//presistCurrentCacheState();
 		flushAllItemsToStorage();
 
-		m_ptrHead.reset();
-		m_ptrTail.reset();;
+		delete m_ptrHead;
+		delete m_ptrTail;
 		m_ptrStorage.reset();
 
 		m_mpObjects.clear();
@@ -192,7 +192,7 @@ public:
 		std::unique_lock<std::shared_mutex> lock_storage(m_mtxStorage); // TODO: requesting the same key?
 		lock_cache.unlock();
 #endif //__CONCURRENT__
-
+		/*
 		ObjectUIDType uidTemp = uidObject;
 
 		if (m_mpUIDUpdates.find(uidObject) != m_mpUIDUpdates.end())
@@ -211,16 +211,16 @@ public:
 			m_mpUIDUpdates.erase(uidObject);
 			uidTemp = *uidUpdated;
 		}
-
+		*/
 #ifdef __CONCURRENT__
 		lock_storage.unlock();
 #endif //__CONCURRENT__
 
-		ptrObject = m_ptrStorage->getObject(uidTemp);
+		ptrObject = m_ptrStorage->getObject(uidObject);
 
 		//ObjectUIDType uidTemp;
 		//ObjectUIDType::createAddressFromVolatilePointer(uidTemp, uidTemp.getObjectType(), reinterpret_cast<uintptr_t>(ptrObject.get()));
-		ptrObject->setUID(uidTemp);
+		//ptrObject->setUID(uidTemp);
 		//uidObject = uidTemp;
 
 		if (ptrObject != nullptr)
@@ -289,14 +289,18 @@ public:
 		std::unique_lock<std::shared_mutex> lock_cache(m_mtxCache);
 #endif //__CONCURRENT__
 
-		while (vt.size() > 0)
+		//while (vt.size() > 0)
+		for (auto it = vt.rbegin(); it != vt.rend(); ++it)
 		{
-			std::pair<ObjectUIDType, ObjectTypePtr> prNode = vt.back();
+			std::pair<ObjectUIDType, ObjectTypePtr> prNode = *it;
 
 			//if (m_mpObjects.find(prNode.first) != m_mpObjects.end())
 			{
 				//std::shared_ptr<ObjectType> ptrItem = m_mpObjects[prNode.first];
 				moveToFront(prNode.second);	//TODO: How about passing whole list together and re-arrange the list?
+				
+				assert(prNode.second->inuse == true);
+				prNode.second->inuse = false;
 			}
 			//else
 			//{
@@ -307,11 +311,11 @@ public:
 			//	}
 			//}
 
-			vt.pop_back();
+			
 		}
 
 		flushItemsToStorage();
-
+		vt.clear();
 		return CacheErrorCode::Success;
 	}
 
@@ -527,33 +531,21 @@ CacheErrorCode createObjectOfType_(ObjectTypePtr* ptrObject, std::optional<Objec
 }
 
 template<class Type, typename... ArgsType>
-CacheErrorCode createObjectOfType__(ObjectTypePtr& ptrObject, std::optional<ObjectUIDType>& uidObject, const ArgsType... args)
+CacheErrorCode createObjectOfTypeEx(ObjectTypePtr& ptrObject, std::optional<ObjectUIDType>& uidObject, const ArgsType... args)
 {
-	//std::shared_ptr<Type> ptrCoreObject = std::make_shared<Type>(args...);
+	void* ptrCoreObj = new Type(args...);
+	ptrObject = new ObjectType(ptrCoreObj, Type::UID);
 
-	void* ptrobj = new Type(args...);
-	ptrObject = std::make_shared<ObjectType>(ptrobj, Type::UID);
-
-
-
-	ObjectUIDType uidTemp;
-	ObjectUIDType::createAddressFromVolatilePointer(uidTemp, Type::UID, reinterpret_cast<uintptr_t>(ptrObject.get()));
-	ptrObject->setUID(uidTemp);
-	uidObject = uidTemp;
-
-	//ObjectUIDType abc;
-	//assert(ptrObject->getUID() != abc);
-
-	//uidObject = uidTemp;
-	//ptrObject->setUID(uidTemp);
-
-	//std::shared_ptr<ObjectType> ptrItem = std::make_shared<ObjectType>(*uidObject, ptrStorageObject);
+	uidObject = ObjectUIDType();
+	ObjectUIDType::createAddressFromVolatilePointer(*uidObject, Type::UID, reinterpret_cast<uintptr_t>(ptrObject));
+	ptrObject->setUID(*uidObject);
 
 #ifdef __CONCURRENT__
 	std::unique_lock<std::shared_mutex> lock_cache(m_mtxCache);
 #endif //__CONCURRENT__
 
-	if (m_mpObjects.find(*uidObject) != m_mpObjects.end())
+	// might be keep the followign for validation purposes to check if two object are allocated the same id.. it could be due to the deletion logic.
+	/*if (m_mpObjects.find(*uidObject) != m_mpObjects.end())
 	{
 		std::cout << "Critical State: UID for a newly created object already exist in the cache." << std::endl;
 		throw new std::logic_error(".....");   // TODO: critical log.
@@ -561,27 +553,24 @@ CacheErrorCode createObjectOfType__(ObjectTypePtr& ptrObject, std::optional<Obje
 		//std::shared_ptr<ObjectType> ptrItem = m_mpObjects[*uidObject];
 		//ptrItem->m_ptrObject = ptrStorageObject;
 		//moveToFront(ptrItem);
+	}*/
+
+#ifdef __TRACK_CACHE_FOOTPRINT__
+	m_nCacheFootprint += ptrStorageObject->getMemoryFootprint();
+#endif //__TRACK_CACHE_FOOTPRINT__
+
+	/* Should it be moved immediately? I think not!
+	if (!m_ptrHead)
+	{
+		m_ptrHead = ptrObject;
+		m_ptrTail = ptrObject;
 	}
 	else
 	{
-		//m_mpObjects[ptrObject->m_uidSelf] = ptrObject;
-
-#ifdef __TRACK_CACHE_FOOTPRINT__
-		m_nCacheFootprint += ptrStorageObject->getMemoryFootprint();
-#endif //__TRACK_CACHE_FOOTPRINT__
-
-		//if (!m_ptrHead)
-		//{
-		//	m_ptrHead = ptrObject;
-		//	m_ptrTail = ptrObject;
-		//}
-		//else
-		//{
-		//	ptrObject->m_ptrNext = m_ptrHead;
-		//	m_ptrHead->m_ptrPrev = ptrObject;
-		//	m_ptrHead = ptrObject;
-		//}
-	}
+		ptrObject->m_ptrNext = m_ptrHead;
+		m_ptrHead->m_ptrPrev = ptrObject;
+		m_ptrHead = ptrObject;
+	}*/
 
 	m_nUsedCacheCapacity++;
 
@@ -718,17 +707,17 @@ CacheErrorCode createObjectOfType__(std::optional<ObjectUIDType>& uidObject, Obj
 {
 	ptrObject = nullptr;// std::make_shared<ObjectType>(Type::UID, std::make_shared<Type>(args...));
 
-	void* ptrobj = new Type(args...);
-	ptrObject = std::make_shared<ObjectType>(ptrobj, Type::UID);
+	//void* ptrobj = new Type(args...);
+	//ptrObject = std::make_shared<ObjectType>(ptrobj, Type::UID);
 
+
+	////ObjectUIDType uidTemp;
+	////ObjectUIDType::createAddressFromVolatilePointer(uidTemp, Type::UID, reinterpret_cast<uintptr_t>(ptrStorageObject.get()));
 
 	//ObjectUIDType uidTemp;
-	//ObjectUIDType::createAddressFromVolatilePointer(uidTemp, Type::UID, reinterpret_cast<uintptr_t>(ptrStorageObject.get()));
-
-	ObjectUIDType uidTemp;
-	ObjectUIDType::createAddressFromVolatilePointer(uidTemp, Type::UID, reinterpret_cast<uintptr_t>(ptrObject.get()));
-	ptrObject->setUID(uidTemp);
-	uidObject = uidTemp;
+	//ObjectUIDType::createAddressFromVolatilePointer(uidTemp, Type::UID, reinterpret_cast<uintptr_t>(ptrObject.get()));
+	//ptrObject->setUID(uidTemp);
+	//uidObject = uidTemp;
 
 	ObjectUIDType abc;
 	assert(ptrObject->getUID() != abc);
@@ -977,7 +966,7 @@ private:
 		m_ptrTail = currentNode;
 	}
 
-	inline void moveToFront(std::shared_ptr<ObjectType> ptrItem)
+	inline void moveToFront(ObjectType* ptrItem)
 	{
 		if (!m_ptrHead)
 		{
@@ -1123,6 +1112,8 @@ private:
 
 	inline void flushItemsToStorage()
 	{
+		if(m_ptrTail==nullptr)
+			return;
 		//return;
 #ifdef __CONCURRENT__
 		std::vector<std::pair<ObjectUIDType, std::pair<std::optional<ObjectUIDType>, std::shared_ptr<ObjectType>>>> vtObjects;
@@ -1250,7 +1241,8 @@ private:
 #else //__CONCURRENT__
 		while (m_nUsedCacheCapacity > m_nCacheCapacity)
 		{
-			if (m_ptrTail.use_count() > 3)
+			if (m_ptrTail->inuse)
+			//if (m_ptrTail->use_count() > 3)
 			{
 				/* Info:
 				 * Should proceed with the preceeding one?
@@ -1259,20 +1251,20 @@ private:
 				break;
 			}
 
-			if (m_ptrTail.use_count() == 3)
+			//if (m_ptrTail.use_count() == 3)
 			{
 				//std::cout << ";;" << std::endl;
 				//m_ptrTail->unhook_();
 			}
 
-			if (m_mpUIDUpdates.size() > 0)
+			// might be later check for validation!!
+			/*if (m_mpUIDUpdates.size() > 0)
 			{
 				m_ptrCallback->applyExistingUpdates(m_ptrTail, m_mpUIDUpdates);
-			}
+			}*/
 
 			if (m_ptrTail->getDirtyFlag())
 			{
-
 				ObjectUIDType uidUpdated;
 				if (m_ptrStorage->addObject(m_ptrTail->m_uidSelf, m_ptrTail, uidUpdated) != CacheErrorCode::Success)
 				{
@@ -1288,11 +1280,14 @@ private:
 				}
 
 				m_mpUIDUpdates[m_ptrTail->m_uidSelf] = std::make_pair(uidUpdated, m_ptrTail);
+
+
+				m_ptrTail->updateUID(uidUpdated);
 			}
 
 			//m_mpObjects.erase(m_ptrTail->m_uidSelf);
 
-			std::shared_ptr<ObjectType> ptrTemp = m_ptrTail;
+			ObjectType* ptrTemp = m_ptrTail;
 
 			m_ptrTail = m_ptrTail->m_ptrPrev;
 
@@ -1305,7 +1300,7 @@ private:
 				m_ptrHead = nullptr;
 			}
 			ptrTemp->unhook_();
-			ptrTemp.reset();
+			delete ptrTemp;
 
 			m_nUsedCacheCapacity--;
 		}

@@ -78,25 +78,40 @@ public:
 	typedef std::tuple<ValueCoreTypes...> ValueCoreTypesTuple;
 
 public:
-	std::shared_ptr<LRUCacheObject>* hook;
+	LRUCacheObject** hook;
 	bool m_bDirty;
-	ValueCoreTypesWrapper m_objData;
+	bool inuse;
+	//ValueCoreTypesWrapper m_objData;
 	std::shared_mutex* m_mtx;
 
 	void* _ptrobj;
 	uint8_t _ptrobjtype;
+	std::optional<ObjectUIDType>* _ptrobjuid;
 
 	ObjectUIDType m_uidSelf;
-	std::shared_ptr<SelfType> m_ptrPrev;
-	std::shared_ptr<SelfType> m_ptrNext;
+	SelfType* m_ptrPrev;
+	SelfType* m_ptrNext;
 
 public:
 	~LRUCacheObject()
 	{
 		//resetVaraint(m_objData);
-		delete _ptrobj;
+	/*	if (_ptrobj != nullptr)
+		{
+
+			delete _ptrobj;
+			_ptrobj = nullptr;
+		}*/
 	}
 
+	//LRUCacheObject()
+	//	: m_bDirty(true)
+	//	, m_ptrNext(nullptr)
+	//	, m_ptrPrev(nullptr)
+	//	, hook(NULL)
+	//	, _ptrobj(nullptr)
+	//{
+	//}
 
 	//template<class ValueCoreType>
 	LRUCacheObject(void* ptrCoreObject, uint8_t nType)
@@ -104,10 +119,12 @@ public:
 		, m_ptrNext(nullptr)
 		, m_ptrPrev(nullptr)
 		, hook(NULL)
+		, _ptrobj(nullptr)
+		, _ptrobjuid(nullptr)
+		, inuse(false)
 	{
 		_ptrobj = ptrCoreObject;
 		_ptrobjtype = nType;
-
 		//ObjectUIDType::createAddressFromVolatilePointer(m_uidSelf, nType, reinterpret_cast<uintptr_t>(this));
 	}
 
@@ -117,8 +134,11 @@ public:
 		, m_ptrNext(nullptr)
 		, m_ptrPrev(nullptr)
 		, hook(NULL)
+		, _ptrobj(nullptr)
+		, inuse(false)
+
 	{
-		m_objData = ptrCoreObject;
+		//m_objData = ptrCoreObject;
 
 		//ObjectUIDType::createAddressFromVolatilePointer(m_uidSelf, nType, reinterpret_cast<uintptr_t>(this));
 	}
@@ -131,8 +151,11 @@ public:
 		, m_ptrNext(nullptr)
 		, m_ptrPrev(nullptr)
 		, hook(NULL)
+		, _ptrobj(nullptr)
+		, inuse(false)
+
 	{
-		m_objData = ptrCoreObject;
+		//m_objData = ptrCoreObject;
 
 		//auto a = reinterpret_cast<uintptr_t>(this);
 	}
@@ -142,6 +165,9 @@ public:
 		, m_ptrNext(nullptr)
 		, m_ptrPrev(nullptr)
 		, hook(NULL)
+		, _ptrobj(nullptr)
+		, inuse(false)
+
 	{
 		CoreTypesMarshaller::template deserialize_<ValueCoreTypesWrapper, ValueCoreTypes...>(fs, _ptrobj);
 	}
@@ -151,18 +177,27 @@ public:
 		, m_ptrNext(nullptr)
 		, m_ptrPrev(nullptr)
 		, hook(NULL)
+		, _ptrobj(nullptr)
+		, inuse(false)
+
 	{
 		CoreTypesMarshaller::template deserialize__<ValueCoreTypesWrapper, ValueCoreTypes...>(szBuffer, _ptrobj, _ptrobjtype);
 	}
 
-	inline void hook_(std::shared_ptr<LRUCacheObject>* ref)
+	inline void hook_(LRUCacheObject*& ref, std::optional<ObjectUIDType>& refuid)
 	{
-		hook = ref;
+		hook = &ref;
+		_ptrobjuid = &refuid;
 	}
 
 	inline void mtx(std::shared_mutex& mtx)
 	{
 		m_mtx = &mtx;
+	}
+
+	inline void updateUID(ObjectUIDType& refuid)
+	{
+		*_ptrobjuid = refuid;
 	}
 
 	inline void unhook_()
@@ -171,7 +206,7 @@ public:
 		{
 			return;
 		}
-		*hook = nullptr;
+		*hook = NULL;
 
 		m_ptrNext = nullptr;
 		m_ptrPrev=nullptr;
@@ -211,10 +246,10 @@ public:
 		m_bDirty = bDirty;
 	}
 
-	inline const ValueCoreTypesWrapper& getInnerData() const
+	/*inline const ValueCoreTypesWrapper& getInnerData() const
 	{
 		return m_objData;
-	}
+	}*/
 
 	inline std::shared_mutex& getMutex()
 	{
@@ -233,11 +268,11 @@ public:
 
 	inline size_t getMemoryFootprint()
 	{
-		return sizeof(*this) + getVariantMemoryFootprint(m_objData);
+		return sizeof(*this); //x/ +getVariantMemoryFootprint(m_objData);
 	}
 
 	inline bool isIndexNode()
 	{
-		return sizeof(*this) + doesVariantContainIndex(m_objData);
+		return sizeof(*this); //x/ +doesVariantContainIndex(m_objData);
 	}
 };

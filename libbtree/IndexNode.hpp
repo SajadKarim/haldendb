@@ -28,25 +28,28 @@ private:
 
 	typedef std::variant<std::shared_ptr<DataNodeType>, std::shared_ptr<SelfType>> ValueCoreTypesWrapper;
 	typedef LRUCacheObject<ObjectUIDType, TypeMarshaller, DataNodeType, SelfType> CacheObject;
+	typedef CacheObject* CacheObjectPtr;
 
 public:
 	struct XYZ {
 		ObjectUIDType uid;
 
 		std::shared_mutex m_mtx;
-		ObjectUIDType uid_updated;
+		std::optional<ObjectUIDType> uid_updated;
 
-		std::shared_ptr<CacheObject> ptr;
+		CacheObjectPtr ptr;
 
-		XYZ() {
-
+		XYZ() 
+		{
+			ptr = nullptr;
 		}
 		
-		XYZ(const ObjectUIDType& _uid, const std::shared_ptr<CacheObject> _obj)
+		XYZ(const ObjectUIDType& _uid, const CacheObjectPtr _obj)
+			: uid(_uid)
 		{
-			uid = _uid;
+			
 			ptr = _obj;
-			_obj->hook_(&ptr);
+			_obj->hook_(ptr, uid_updated);
 			_obj->mtx(m_mtx);
 		}
 
@@ -54,22 +57,30 @@ public:
 		XYZ(const XYZ& other) {
 			uid = other.uid;
 			ptr = other.ptr;
-			if (ptr) {
-				ptr->hook_(&ptr);
+			if (ptr != nullptr) {
+				ptr->hook_(ptr, uid_updated);
 				ptr->mtx(m_mtx);
 			}
 			
 			//m_mtx = ptr.m_mtx;
 		}
 
+		/*XYZ(const XYZ&& other) {
+			uid = other.uid;
+			ptr = other.ptr;
+			if (ptr != nullptr) {
+				ptr->hook_(ptr);
+				ptr->mtx(m_mtx);
+			}
+		}*/
+
 		// Assignment operator
 		XYZ& operator=(const XYZ& other) {
 			if (this != &other) {
 				uid = other.uid;
 				ptr = other.ptr;
-				if (ptr) {
-					ptr->hook_(&ptr);
-					
+				if (ptr != nullptr) {
+					ptr->hook_(ptr, uid_updated);
 					ptr->mtx(m_mtx);
 				}
 			}
@@ -79,7 +90,7 @@ public:
 
 	typedef std::vector<KeyType>::const_iterator KeyTypeIterator;
 	typedef std::vector<XYZ>::const_iterator CacheKeyTypeIterator;
-	typedef std::vector<std::shared_ptr<CacheObject>>::const_iterator ItemsKeyTypeIterator;
+	typedef std::vector<CacheObjectPtr>::const_iterator ItemsKeyTypeIterator;
 
 
 
@@ -89,7 +100,7 @@ private:
 	std::vector<XYZ> m_vtChildren;
 
 public:
-	//std::vector<std::shared_ptr<CacheObject>> m_ptChildren;
+	//std::vector<CacheObjectPtr> m_ptChildren;
 
 public:
 	// Destructor: Clears pivot and child vectors
@@ -136,7 +147,7 @@ public:
 			nOffset += nKeysSize;
 
 			//uint32_t nValuesSize = (nKeyCount + 1) * sizeof(XYZ);
-			//uint32_t nValuesSize_ = (nKeyCount + 1) * (sizeof(typename ObjectUIDType::NodeUID) + sizeof(std::shared_ptr<CacheObject>));
+			//uint32_t nValuesSize_ = (nKeyCount + 1) * (sizeof(typename ObjectUIDType::NodeUID) + sizeof(CacheObjectPtr));
 			//memcpy(m_vtChildren.data(), szData + nOffset, nValuesSize);
 
 			for (auto& ptr : m_vtChildren) {
@@ -208,11 +219,11 @@ public:
 	}
 
 	// Constructor that creates an internal node with a pivot key and two child UIDs
-	IndexNode(const KeyType& pivotKey, const ObjectUIDType& uidLHSNode, const shared_ptr<CacheObject> ptrLHSNode, const ObjectUIDType& uidRHSNode, const shared_ptr<CacheObject> ptrRHSNode)
+	IndexNode(const KeyType& pivotKey, const ObjectUIDType& uidLHSNode, const CacheObjectPtr ptrLHSNode, const ObjectUIDType& uidRHSNode, const CacheObjectPtr ptrRHSNode)
 	{
 		m_vtPivots.push_back(pivotKey);
-		m_vtChildren.push_back(XYZ(uidLHSNode, ptrLHSNode));
-		m_vtChildren.push_back(XYZ(uidRHSNode, ptrRHSNode));
+		m_vtChildren.emplace_back(XYZ(uidLHSNode, ptrLHSNode));
+		m_vtChildren.emplace_back(XYZ(uidRHSNode, ptrRHSNode));
 
 		//m_ptChildren.push_back(ptrLHSNode);
 		//ptrLHSNode->hook_(&m_ptChildren[m_ptChildren.size() - 1]);
@@ -367,17 +378,20 @@ public:
 	// Gets the child at the given index
 	inline const ObjectUIDType& getChildAt(size_t nIdx) const
 	{
-		return m_vtChildren[nIdx];
+		return m_vtChildren[nIdx].uid;
 	}
 
 	// Gets the child node corresponding to the given key
-	inline void getChild(const KeyType& key, ObjectUIDType& uid, std::shared_ptr<CacheObject>& ptr) const
+	inline void getChild(const KeyType& key, ObjectUIDType& uid, CacheObjectPtr& ptr)
 	{
+		if(m_vtChildren[getChildNodeIdx(key)].uid_updated)
+			m_vtChildren[getChildNodeIdx(key)].uid = *m_vtChildren[getChildNodeIdx(key)].uid_updated;
+
 		uid = m_vtChildren[getChildNodeIdx(key)].uid;
 		ptr = m_vtChildren[getChildNodeIdx(key)].ptr;
 	}
 
-	//inline void updateChildPtr(const KeyType& key, ObjectUIDType& uid, std::shared_ptr<CacheObject>& ptr) const
+	//inline void updateChildPtr(const KeyType& key, ObjectUIDType& uid, CacheObjectPtr& ptr) const
 	//{
 	//	assert(uid == m_vtChildren[getChildNodeIdx(key)].uid);
 	//	m_vtChildren[getChildNodeIdx(key)].ptr = ptr;
@@ -439,11 +453,12 @@ public:
 #ifdef __TRACK_CACHE_FOOTPRINT__
 	int32_t updateChildUID(std::shared_ptr<CacheObjectType> ptrChildNode, const ObjectUIDType& uidOld, const ObjectUIDType& uidNew)
 #else //__TRACK_CACHE_FOOTPRINT__
-	void updateChildUID(std::shared_ptr<CacheObjectType> ptrChildNode, const ObjectUIDType& uidOld, const ObjectUIDType& uidNew)
+	void updateChildUID(CacheObjectType* ptrChildNode, const ObjectUIDType& uidOld, const ObjectUIDType& uidNew)
 #endif //__TRACK_CACHE_FOOTPRINT__
 	{
 		const KeyType* key = nullptr;
-		if (std::holds_alternative<std::shared_ptr<SelfType>>(ptrChildNode->getInnerData()))
+		if (ptrChildNode->_ptrobjtype == SelfType::UID)
+		//if (std::holds_alternative<std::shared_ptr<SelfType>>(ptrChildNode->getInnerData()))
 		{
 			SelfType* _ptr = reinterpret_cast<SelfType*>(ptrChildNode->_ptrobj);
 			key = &_ptr->getFirstChild();
@@ -468,7 +483,7 @@ public:
 
 		m_vtChildren[index].uid = uidNew;
 		m_vtChildren[index].ptr = ptrChildNode;
-		ptrChildNode->hook_(&m_vtChildren[index].ptr);
+		ptrChildNode->hook_(m_vtChildren[index].ptr, m_vtChildren[index].uid_updated);
 
 #ifdef __TRACK_CACHE_FOOTPRINT__
 		return 0;
@@ -481,11 +496,12 @@ public:
 #ifdef __TRACK_CACHE_FOOTPRINT__
 	int32_t updateChildUID_(std::shared_ptr<CacheObjectType> ptrChildNode, const ObjectUIDType& uidOld, const ObjectUIDType& uidNew)
 #else //__TRACK_CACHE_FOOTPRINT__
-	void updateChildUID_(std::shared_ptr<CacheObjectType> ptrChildNode, const ObjectUIDType& uidOld, const ObjectUIDType& uidNew)
+	void updateChildUID_(CacheObjectType* ptrChildNode, const ObjectUIDType& uidOld, const ObjectUIDType& uidNew)
 #endif //__TRACK_CACHE_FOOTPRINT__
 	{
 		const KeyType* key = nullptr;
-		if (std::holds_alternative<std::shared_ptr<SelfType>>(ptrChildNode->getInnerData()))
+		//if (std::holds_alternative<std::shared_ptr<SelfType>>(ptrChildNode->getInnerData()))
+		if (ptrChildNode->_ptrobjtype == SelfType::UID)
 		{
 			SelfType* _ptr = reinterpret_cast<SelfType*>(ptrChildNode->_ptrobj);
 			key = &_ptr->getFirstChild();
@@ -509,7 +525,7 @@ public:
 
 		//m_vtChildren[index].uid = uidNew;
 		m_vtChildren[index].ptr = ptrChildNode;
-		ptrChildNode->hook_(&m_vtChildren[index].ptr);
+		ptrChildNode->hook_(m_vtChildren[index].ptr, m_vtChildren[index].uid_updated);
 		ptrChildNode->mtx(m_vtChildren[index].m_mtx);
 
 #ifdef __TRACK_CACHE_FOOTPRINT__
@@ -568,7 +584,7 @@ public:
 #ifdef __TRACK_CACHE_FOOTPRINT__
 	inline ErrorCode insert(const KeyType& pivotKey, const ObjectUIDType& uidSibling, int32_t& nMemoryFootprint)
 #else //__TRACK_CACHE_FOOTPRINT__
-	inline ErrorCode insert(const KeyType& pivotKey, const ObjectUIDType& uidSibling, const std::shared_ptr<CacheObject>& ptrSibling)
+	inline ErrorCode insert(const KeyType& pivotKey, const ObjectUIDType& uidSibling, const CacheObjectPtr& ptrSibling)
 #endif //__TRACK_CACHE_FOOTPRINT__
 	{
 #ifdef __TRACK_CACHE_FOOTPRINT__
@@ -623,7 +639,7 @@ public:
 #ifdef __TRACK_CACHE_FOOTPRINT__
 	inline ErrorCode rebalanceIndexNode(std::shared_ptr<CacheType>& ptrCache, const ObjectUIDType& uidChild, std::shared_ptr<SelfType>& ptrChild, const KeyType& key, size_t nDegree, std::optional<ObjectUIDType>& uidObjectToDelete, std::optional<ObjectUIDType>& uidAffectedNode, CacheType::ObjectTypePtr& ptrAffectedNode, int32_t& nMemoryFootprint)
 #else //__TRACK_CACHE_FOOTPRINT__
-	inline ErrorCode rebalanceIndexNode(std::shared_ptr<CacheType>& ptrCache, const ObjectUIDType& uidChild, std::shared_ptr<SelfType>& ptrChild, const KeyType& key, size_t nDegree, std::optional<ObjectUIDType>& uidObjectToDelete, std::optional<ObjectUIDType>& uidAffectedNode, CacheType::ObjectTypePtr& ptrAffectedNode)
+	inline ErrorCode rebalanceIndexNode(std::shared_ptr<CacheType>& ptrCache, const ObjectUIDType& uidChild, /*std::shared_ptr<SelfType>&*/ SelfType* ptrChild, const KeyType& key, size_t nDegree, std::optional<ObjectUIDType>& uidObjectToDelete, std::optional<ObjectUIDType>& uidAffectedNode, CacheType::ObjectTypePtr& ptrAffectedNode)
 #endif //__TRACK_CACHE_FOOTPRINT__
 
 #else //__TREE_WITH_CACHE__
@@ -635,8 +651,8 @@ public:
 		ObjectTypePtr ptrLHSStorageObject = nullptr;
 		ObjectTypePtr ptrRHSStorageObject = nullptr;
 
-		std::shared_ptr<SelfType> ptrLHSNode = nullptr;
-		std::shared_ptr<SelfType> ptrRHSNode = nullptr;
+		SelfType* ptrLHSNode = nullptr;
+		SelfType* ptrRHSNode = nullptr;
 
 #ifdef __TREE_WITH_CACHE__
 		uidAffectedNode = std::nullopt;
@@ -649,7 +665,7 @@ public:
 		{
 #ifdef __TREE_WITH_CACHE__
 			std::optional<ObjectUIDType> uidUpdated = std::nullopt;
-			ptrCache->getObject(m_vtChildren[nChildIdx - 1], ptrLHSStorageObject, uidUpdated);    //TODO: lock
+			ptrCache->getObject(m_vtChildren[nChildIdx - 1].uid, ptrLHSStorageObject, uidUpdated);    //TODO: lock
 #else //__TREE_WITH_CACHE__
 			ptrCache->template getObjectOfType<std::shared_ptr<SelfType>>(m_vtChildren[nChildIdx - 1], ptrLHSNode, ptrLHSStorageObject);    //TODO: lock
 #endif //__TREE_WITH_CACHE__
@@ -660,18 +676,19 @@ public:
 
 			//if (std::holds_alternative<std::shared_ptr<SelfType>>(ptrLHSStorageObject->getInnerData()))
 			{
-				ptrLHSNode = std::get<std::shared_ptr<SelfType>>(ptrLHSStorageObject->getInnerData());
+				ptrLHSNode = reinterpret_cast<SelfType*>(ptrLHSStorageObject->_ptrobj);
+				//ptrLHSNode = std::get<std::shared_ptr<SelfType>>(ptrLHSStorageObject->getInnerData());
 			}
 
 #ifdef __TREE_WITH_CACHE__
 			if (uidUpdated != std::nullopt)
 			{
-				m_vtChildren[nChildIdx - 1] = *uidUpdated;
+				m_vtChildren[nChildIdx - 1].uid = *uidUpdated;
 			}
 
 			ptrLHSStorageObject->setDirtyFlag(true);
 
-			uidAffectedNode = m_vtChildren[nChildIdx - 1];
+			uidAffectedNode = m_vtChildren[nChildIdx - 1].uid;
 			ptrAffectedNode = ptrLHSStorageObject;
 #endif //__TREE_WITH_CACHE__
 
@@ -695,7 +712,7 @@ public:
 			ptrLHSNode->mergeNodes(ptrChild, m_vtPivots[nChildIdx - 1]);
 #endif //__TRACK_CACHE_FOOTPRINT__
 
-			uidObjectToDelete = m_vtChildren[nChildIdx];
+			uidObjectToDelete = m_vtChildren[nChildIdx].uid;
 			assert(uidObjectToDelete == uidChild);
 
 			m_vtPivots.erase(m_vtPivots.begin() + nChildIdx - 1);
@@ -708,7 +725,7 @@ public:
 		{
 #ifdef __TREE_WITH_CACHE__
 			std::optional<ObjectUIDType> uidUpdated = std::nullopt;
-			ptrCache->getObject(m_vtChildren[nChildIdx + 1], ptrRHSStorageObject, uidUpdated);    //TODO: lock
+			ptrCache->getObject(m_vtChildren[nChildIdx + 1].uid, ptrRHSStorageObject, uidUpdated);    //TODO: lock
 #else //__TREE_WITH_CACHE__
 			ptrCache->template getObjectOfType<std::shared_ptr<SelfType>>(m_vtChildren[nChildIdx + 1], ptrRHSNode, ptrRHSStorageObject);    //TODO: lock
 #endif //__TREE_WITH_CACHE__
@@ -719,18 +736,19 @@ public:
 
 			//if (std::holds_alternative<std::shared_ptr<SelfType>>(ptrRHSStorageObject->getInnerData()))
 			{
-				ptrRHSNode = std::get<std::shared_ptr<SelfType>>(ptrRHSStorageObject->getInnerData());
+				ptrRHSNode = reinterpret_cast<SelfType*>(ptrRHSStorageObject->_ptrobj);
+				//ptrRHSNode = std::get<std::shared_ptr<SelfType>>(ptrRHSStorageObject->getInnerData());
 			}
 
 #ifdef __TREE_WITH_CACHE__
 			if (uidUpdated != std::nullopt)
 			{
-				m_vtChildren[nChildIdx + 1] = *uidUpdated;
+				m_vtChildren[nChildIdx + 1].uid = *uidUpdated;
 			}
 
 			ptrRHSStorageObject->setDirtyFlag(true);
 
-			uidAffectedNode = m_vtChildren[nChildIdx + 1];
+			uidAffectedNode = m_vtChildren[nChildIdx + 1].uid;
 			ptrAffectedNode = ptrRHSStorageObject;
 #endif //__TREE_WITH_CACHE__
 
@@ -754,9 +772,9 @@ public:
 			ptrChild->mergeNodes(ptrRHSNode, m_vtPivots[nChildIdx]);
 #endif //__TRACK_CACHE_FOOTPRINT__
 
-			assert(uidChild == m_vtChildren[nChildIdx]);
+			assert(uidChild == m_vtChildren[nChildIdx].uid);
 
-			uidObjectToDelete = m_vtChildren[nChildIdx + 1];
+			uidObjectToDelete = m_vtChildren[nChildIdx + 1].uid;
 
 			m_vtPivots.erase(m_vtPivots.begin() + nChildIdx);
 			m_vtChildren.erase(m_vtChildren.begin() + nChildIdx + 1);
@@ -775,7 +793,7 @@ public:
 #ifdef __TRACK_CACHE_FOOTPRINT__
 	inline ErrorCode rebalanceDataNode(std::shared_ptr<CacheType>& ptrCache, const ObjectUIDType& uidChild, std::shared_ptr<DataNodeType>& ptrChild, const KeyType& key, size_t nDegree, std::optional<ObjectUIDType>& uidObjectToDelete, std::optional<ObjectUIDType>& uidAffectedNode, CacheType::ObjectTypePtr& ptrAffectedNode, int32_t& nMemoryFootprint)
 #else //__TRACK_CACHE_FOOTPRINT__
-	inline ErrorCode rebalanceDataNode(std::shared_ptr<CacheType>& ptrCache, const ObjectUIDType& uidChild, std::shared_ptr<DataNodeType>& ptrChild, const KeyType& key, size_t nDegree, std::optional<ObjectUIDType>& uidObjectToDelete, std::optional<ObjectUIDType>& uidAffectedNode, CacheType::ObjectTypePtr& ptrAffectedNode)
+	inline ErrorCode rebalanceDataNode(std::shared_ptr<CacheType>& ptrCache, const ObjectUIDType& uidChild, /*std::shared_ptr<DataNodeType>&*/ DataNodeType* ptrChild, const KeyType& key, size_t nDegree, std::optional<ObjectUIDType>& uidObjectToDelete, std::optional<ObjectUIDType>& uidAffectedNode, CacheType::ObjectTypePtr& ptrAffectedNode)
 #endif //__TRACK_CACHE_FOOTPRINT__
 
 #else //__TREE_WITH_CACHE__
@@ -787,8 +805,8 @@ public:
 		ObjectTypePtr ptrLHSStorageObject = nullptr;
 		ObjectTypePtr ptrRHSStorageObject = nullptr;
 
-		std::shared_ptr<DataNodeType> ptrLHSNode = nullptr;
-		std::shared_ptr<DataNodeType> ptrRHSNode = nullptr;
+		DataNodeType* ptrLHSNode = nullptr;
+		DataNodeType* ptrRHSNode = nullptr;
 
 #ifdef __TREE_WITH_CACHE__
 		uidAffectedNode = std::nullopt;
@@ -801,7 +819,7 @@ public:
 		{
 #ifdef __TREE_WITH_CACHE__
 			std::optional<ObjectUIDType> uidUpdated = std::nullopt;
-			ptrCache->getObject(m_vtChildren[nChildIdx - 1], ptrLHSStorageObject, uidUpdated);    //TODO: lock
+			ptrCache->getObject(m_vtChildren[nChildIdx - 1].uid, ptrLHSStorageObject, uidUpdated);    //TODO: lock
 #else //__TREE_WITH_CACHE__
 			ptrCache->template getObjectOfType<std::shared_ptr<DataNodeType>>(m_vtChildren[nChildIdx - 1], ptrLHSNode, ptrLHSStorageObject);    //TODO: lock
 #endif //__TREE_WITH_CACHE__
@@ -812,18 +830,19 @@ public:
 
 			//if (std::holds_alternative<std::shared_ptr<DataNodeType>>(ptrLHSStorageObject->getInnerData()))
 			{
-				ptrLHSNode = std::get<std::shared_ptr<DataNodeType>>(ptrLHSStorageObject->getInnerData());
+				ptrLHSNode = reinterpret_cast<DataNodeType*>(ptrLHSStorageObject->_ptrobj);
+				//ptrLHSNode = std::get<std::shared_ptr<DataNodeType>>(ptrLHSStorageObject->getInnerData());
 			}
 
 #ifdef __TREE_WITH_CACHE__
 			if (uidUpdated != std::nullopt)
 			{
-				m_vtChildren[nChildIdx - 1] = *uidUpdated;
+				m_vtChildren[nChildIdx - 1].uid = *uidUpdated;
 			}
 
 			ptrLHSStorageObject->setDirtyFlag(true);
 
-			uidAffectedNode = m_vtChildren[nChildIdx - 1];
+			uidAffectedNode = m_vtChildren[nChildIdx - 1].uid;
 			ptrAffectedNode = ptrLHSStorageObject;
 #endif //__TREE_WITH_CACHE__
 
@@ -848,8 +867,11 @@ public:
 			ptrLHSNode->mergeNode(ptrChild);
 #endif //__TRACK_CACHE_FOOTPRINT__
 
-			uidObjectToDelete = m_vtChildren[nChildIdx];
+			uidObjectToDelete = m_vtChildren[nChildIdx].uid;
 			assert(uidObjectToDelete == uidChild);
+
+			//m_vtChildren[nChildIdx].ptr.reset();
+			//delete ptrChild;
 
 			m_vtPivots.erase(m_vtPivots.begin() + nChildIdx - 1);
 			m_vtChildren.erase(m_vtChildren.begin() + nChildIdx);
@@ -861,7 +883,7 @@ public:
 		{
 #ifdef __TREE_WITH_CACHE__
 			std::optional<ObjectUIDType> uidUpdated = std::nullopt;
-			ptrCache->getObject(m_vtChildren[nChildIdx + 1], ptrRHSStorageObject, uidUpdated);    //TODO: lock
+			ptrCache->getObject(m_vtChildren[nChildIdx + 1].uid, ptrRHSStorageObject, uidUpdated);    //TODO: lock
 #else //__TREE_WITH_CACHE__
 			ptrCache->template getObjectOfType<std::shared_ptr<DataNodeType>>(m_vtChildren[nChildIdx + 1], ptrRHSNode, ptrRHSStorageObject);    //TODO: lock
 #endif //__TREE_WITH_CACHE__
@@ -872,18 +894,19 @@ public:
 
 			//if (std::holds_alternative<std::shared_ptr<DataNodeType>>(ptrRHSStorageObject->getInnerData()))
 			{
-				ptrRHSNode = std::get<std::shared_ptr<DataNodeType>>(ptrRHSStorageObject->getInnerData());
+				ptrRHSNode = reinterpret_cast<DataNodeType*>(ptrRHSStorageObject->_ptrobj);
+				//ptrRHSNode = std::get<std::shared_ptr<DataNodeType>>(ptrRHSStorageObject->getInnerData());
 			}
 
 #ifdef __TREE_WITH_CACHE__
 			if (uidUpdated != std::nullopt)
 			{
-				m_vtChildren[nChildIdx + 1] = *uidUpdated;
+				m_vtChildren[nChildIdx + 1].uid = *uidUpdated;
 			}
 
 			ptrRHSStorageObject->setDirtyFlag(true);
 
-			uidAffectedNode = m_vtChildren[nChildIdx + 1];
+			uidAffectedNode = m_vtChildren[nChildIdx + 1].uid;
 			ptrAffectedNode = ptrRHSStorageObject;
 #endif //__TREE_WITH_CACHE__
 
@@ -907,7 +930,9 @@ public:
 			ptrChild->mergeNode(ptrRHSNode);
 #endif //__TRACK_CACHE_FOOTPRINT__
 
-			uidObjectToDelete = m_vtChildren[nChildIdx + 1];
+			uidObjectToDelete = m_vtChildren[nChildIdx + 1].uid;
+			//m_vtChildren[nChildIdx + 1].ptr.reset();
+			//delete ptrRHSNode;
 
 			m_vtPivots.erase(m_vtPivots.begin() + nChildIdx);
 			m_vtChildren.erase(m_vtChildren.begin() + nChildIdx + 1);
@@ -933,7 +958,7 @@ public:
 
 		size_t nMid = m_vtPivots.size() / 2;
 
-		ptrCache->template createObjectOfType__<SelfType>(uidSibling, ptrSibling,
+		ptrCache->template createObjectOfTypeEx<SelfType>(ptrSibling, uidSibling,
 			m_vtPivots.begin() + nMid + 1, m_vtPivots.end(),
 			m_vtChildren.begin() + nMid + 1, m_vtChildren.end());
 			//m_ptChildren.begin() + nMid + 1, m_ptChildren.end());
@@ -984,7 +1009,7 @@ public:
 #ifdef __TRACK_CACHE_FOOTPRINT__
 	inline void moveAnEntityFromLHSSibling(shared_ptr<SelfType> ptrLHSSibling, KeyType& pivotKeyForEntity, KeyType& pivotKeyForParent, int32_t& nMemoryFootprint)
 #else //__TRACK_CACHE_FOOTPRINT__
-	inline void moveAnEntityFromLHSSibling(shared_ptr<SelfType> ptrLHSSibling, KeyType& pivotKeyForEntity, KeyType& pivotKeyForParent)
+	inline void moveAnEntityFromLHSSibling(SelfType* ptrLHSSibling, KeyType& pivotKeyForEntity, KeyType& pivotKeyForParent)
 #endif //__TRACK_CACHE_FOOTPRINT__
 	{
 #ifdef __TRACK_CACHE_FOOTPRINT__
@@ -996,7 +1021,7 @@ public:
 #endif //__TRACK_CACHE_FOOTPRINT__
 
 		KeyType key = ptrLHSSibling->m_vtPivots.back();
-		ObjectUIDType value = ptrLHSSibling->m_vtChildren.back();
+		XYZ value = ptrLHSSibling->m_vtChildren.back();
 
 		ptrLHSSibling->m_vtPivots.pop_back();
 		ptrLHSSibling->m_vtChildren.pop_back();
@@ -1004,7 +1029,7 @@ public:
 		assert(ptrLHSSibling->m_vtPivots.size() > 0);
 
 		m_vtPivots.insert(m_vtPivots.begin(), pivotKeyForEntity);
-		m_vtChildren.insert(m_vtChildren.begin(), value);
+		m_vtChildren.insert(m_vtChildren.begin(), XYZ(value.uid, value.ptr));
 
 		pivotKeyForParent = key;
 
@@ -1053,7 +1078,7 @@ public:
 #ifdef __TRACK_CACHE_FOOTPRINT__
 	inline void moveAnEntityFromRHSSibling(shared_ptr<SelfType> ptrRHSSibling, KeyType& pivotKeyForEntity, KeyType& pivotKeyForParent, int32_t& nMemoryFootprint)
 #else //__TRACK_CACHE_FOOTPRINT__
-	inline void moveAnEntityFromRHSSibling(shared_ptr<SelfType> ptrRHSSibling, KeyType& pivotKeyForEntity, KeyType& pivotKeyForParent)
+	inline void moveAnEntityFromRHSSibling(SelfType* ptrRHSSibling, KeyType& pivotKeyForEntity, KeyType& pivotKeyForParent)
 #endif //__TRACK_CACHE_FOOTPRINT__
 	{
 #ifdef __TRACK_CACHE_FOOTPRINT__
@@ -1065,7 +1090,7 @@ public:
 #endif //__TRACK_CACHE_FOOTPRINT__
 
 		KeyType key = ptrRHSSibling->m_vtPivots.front();
-		ObjectUIDType value = ptrRHSSibling->m_vtChildren.front();
+		XYZ value = ptrRHSSibling->m_vtChildren.front();
 
 		ptrRHSSibling->m_vtPivots.erase(ptrRHSSibling->m_vtPivots.begin());
 		ptrRHSSibling->m_vtChildren.erase(ptrRHSSibling->m_vtChildren.begin());
@@ -1073,7 +1098,7 @@ public:
 		assert(ptrRHSSibling->m_vtPivots.size() > 0);
 
 		m_vtPivots.push_back(pivotKeyForEntity);
-		m_vtChildren.push_back(value);
+		m_vtChildren.push_back(XYZ(value.uid, value.ptr));
 
 		pivotKeyForParent = key;
 
@@ -1122,7 +1147,7 @@ public:
 #ifdef __TRACK_CACHE_FOOTPRINT__
 	inline void mergeNodes(shared_ptr<SelfType> ptrSibling, KeyType& pivotKey, int32_t& nMemoryFootprint)
 #else //__TRACK_CACHE_FOOTPRINT__
-	inline void mergeNodes(shared_ptr<SelfType> ptrSibling, KeyType& pivotKey)
+	inline void mergeNodes(SelfType* ptrSibling, KeyType& pivotKey)
 #endif //__TRACK_CACHE_FOOTPRINT__
 	{
 #ifdef __TRACK_CACHE_FOOTPRINT__
@@ -1212,7 +1237,7 @@ public:
 			{
 				ptrCache->getObject(m_vtChildren[nIndex].uid, ptrNode, uidUpdated);
 				m_vtChildren[nIndex].ptr = ptrNode;
-				ptrNode->hook_(&m_vtChildren[nIndex].ptr);
+				ptrNode->hook_(m_vtChildren[nIndex].ptr);
 			}
 
 			if (uidUpdated != std::nullopt)

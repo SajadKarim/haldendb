@@ -116,7 +116,7 @@ public:
 		return CacheErrorCode::Success;
 	}
 
-	std::shared_ptr<ObjectType> getObject(const ObjectUIDType& uidObject)
+	ObjectType* getObject(const ObjectUIDType& uidObject)
 	{
 		char* szBuffer = new char[uidObject.getPersistentObjectSize() + 1];
 		memset(szBuffer, '\0', uidObject.getPersistentObjectSize() + 1);
@@ -128,7 +128,7 @@ public:
 		m_fsStorage.seekg(uidObject.getPersistentPointerValue());
 		//std::shared_ptr<ObjectType> ptrObject = std::make_shared<ObjectType>(m_fsStorage);
 		m_fsStorage.read(szBuffer, uidObject.getPersistentObjectSize());
-		std::shared_ptr<ObjectType> ptrObject = std::make_shared<ObjectType>(szBuffer);
+		ObjectType* ptrObject = new ObjectType(szBuffer);
 #ifdef __CONCURRENT__
 		lock_file_storage.unlock();
 #endif //__CONCURRENT__
@@ -145,7 +145,7 @@ public:
 		return CacheErrorCode::Success;
 	}
 
-	CacheErrorCode addObject(ObjectUIDType uidObject, std::shared_ptr<ObjectType> ptrObject, ObjectUIDType& uidUpdated)
+	CacheErrorCode addObject(ObjectUIDType uidObject, ObjectType* ptrObject, ObjectUIDType& uidUpdated)
 	{
 		uint32_t nBufferSize = 0;
 		uint8_t uidObjectType = 0;

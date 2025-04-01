@@ -422,7 +422,7 @@ public:
 
 		size_t nMid = m_vtKeys.size() / 2;
 
-		ptrCache->template createObjectOfType__<SelfType>(uidSibling, ptrSibling,
+		ptrCache->template createObjectOfTypeEx<SelfType>(ptrSibling, uidSibling,
 			m_vtKeys.begin() + nMid, m_vtKeys.end(),
 			m_vtValues.begin() + nMid, m_vtValues.end());
 
@@ -475,7 +475,7 @@ public:
 #ifdef __TRACK_CACHE_FOOTPRINT__
 	inline void moveAnEntityFromLHSSibling(std::shared_ptr<SelfType> ptrLHSSibling, KeyType& pivotKeyForParent, int32_t& nMemoryFootprint)
 #else //__TRACK_CACHE_FOOTPRINT__
-	inline void moveAnEntityFromLHSSibling(std::shared_ptr<SelfType> ptrLHSSibling, KeyType& pivotKeyForParent)
+	inline void moveAnEntityFromLHSSibling(SelfType* ptrLHSSibling, KeyType& pivotKeyForParent)
 #endif //__TRACK_CACHE_FOOTPRINT__
 	{
 #ifdef __TRACK_CACHE_FOOTPRINT__
@@ -545,7 +545,7 @@ public:
 #ifdef __TRACK_CACHE_FOOTPRINT__
 	inline void mergeNode(std::shared_ptr<SelfType> ptrSibling, int32_t& nMemoryFootprint)
 #else //__TRACK_CACHE_FOOTPRINT__
-	inline void mergeNode(std::shared_ptr<SelfType> ptrSibling)
+	inline void mergeNode(SelfType* ptrSibling)
 #endif //__TRACK_CACHE_FOOTPRINT__
 	{
 #ifdef __TRACK_CACHE_FOOTPRINT__
@@ -591,7 +591,7 @@ public:
 #ifdef __TRACK_CACHE_FOOTPRINT__
 	inline void moveAnEntityFromRHSSibling(std::shared_ptr<SelfType> ptrRHSSibling, KeyType& pivotKeyForParent, int32_t& nMemoryFootprint)
 #else //__TRACK_CACHE_FOOTPRINT__
-	inline void moveAnEntityFromRHSSibling(std::shared_ptr<SelfType> ptrRHSSibling, KeyType& pivotKeyForParent)
+	inline void moveAnEntityFromRHSSibling(SelfType* ptrRHSSibling, KeyType& pivotKeyForParent)
 #endif //__TRACK_CACHE_FOOTPRINT__
 	{
 #ifdef __TRACK_CACHE_FOOTPRINT__
