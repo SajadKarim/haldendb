@@ -181,19 +181,21 @@ public:
 			std::is_trivial<ValueType>::value &&
 			std::is_standard_layout<ValueType>::value)
 		{
-			uidObjectType = SelfType::UID;
+			uidObjectType = UID;
 
 			uint16_t nTotalEntries = m_vtKeys.size();
 
 			nDataSize = sizeof(uint8_t)					// UID
 				+ sizeof(uint16_t)						// Total entries
 				+ (nTotalEntries * sizeof(KeyType))		// Size of all keys
-				+ (nTotalEntries * sizeof(ValueType));	// Size of all values
+				+ (nTotalEntries * sizeof(ValueType)) + 1;	// Size of all values
 
-			os.write(reinterpret_cast<const char*>(&uidObjectType), sizeof(uint8_t));
+			os.write(reinterpret_cast<const char*>(&UID), sizeof(uint8_t));
 			os.write(reinterpret_cast<const char*>(&nTotalEntries), sizeof(uint16_t));
 			os.write(reinterpret_cast<const char*>(m_vtKeys.data()), nTotalEntries * sizeof(KeyType));
 			os.write(reinterpret_cast<const char*>(m_vtValues.data()), nTotalEntries * sizeof(ValueType));
+			char nullChar = '\0'; // Define the null character
+			os.write(&nullChar, sizeof(uint8_t));
 		}
 		else
 		{

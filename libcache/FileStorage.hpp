@@ -76,7 +76,7 @@ public:
 		m_fsStorage.open(stFilename.c_str(), std::ios::out | std::ios::binary);
 		m_fsStorage.close();
 
-		m_fsStorage.open(stFilename.c_str(), std::ios::out | std::ios::binary | std::ios::in);
+		m_fsStorage.open(stFilename.c_str(), std::ios::in | std::ios::out | std::ios::binary);
 		m_fsStorage.seekp(0);
 		m_fsStorage.seekg(0);
 
@@ -160,6 +160,14 @@ public:
 #endif //__CONCURRENT__
 
 		m_fsStorage.seekp(nOffset);
+		
+		/*
+		if (m_fsStorage.fail()) {
+			std::cerr << "seekp failed to set the position." << std::endl;
+		}
+		else {
+			std::cout << "seekp succeeded in setting the position." << std::endl;
+		}*/
 		//ptrObject->serialize(m_fsStorage, uidObjectType, nBufferSize);
 		m_fsStorage.write(szBuffer, nBufferSize);
 		m_fsStorage.flush();	// how about flushing after enough bytes are written?
@@ -178,13 +186,23 @@ public:
 
 		
 		ObjectUIDType::createAddressFromFileOffset(uidUpdated, uidObject.getObjectType(), nOffset, nBufferSize);
+		/*
+		char* _szBuffer = new char[uidUpdated.getPersistentObjectSize() + 1];
+		memset(_szBuffer, '\0', uidUpdated.getPersistentObjectSize() + 1);
+		m_fsStorage.seekg(uidUpdated.getPersistentPointerValue());
 
-		//char* _szBuffer = new char[uidUpdated.getPersistentObjectSize() + 1];
-		//memset(_szBuffer, '\0', uidUpdated.getPersistentObjectSize() + 1);
-		//m_fsStorage.seekg(uidUpdated.getPersistentPointerValue());
-		//m_fsStorage.read(_szBuffer, uidUpdated.getPersistentObjectSize());
-		//std::shared_ptr<ObjectType> _ptrObject = std::make_shared<ObjectType>(_szBuffer);
-		//delete[] _szBuffer;
+		if (m_fsStorage.fail()) {
+			std::cerr << "seekg failed to set the position." << std::endl;
+		}
+		else {
+			std::cout << "seekg succeeded in setting the position." << std::endl;
+		}
+
+
+		m_fsStorage.read(_szBuffer, uidUpdated.getPersistentObjectSize());
+		std::shared_ptr<ObjectType> _ptrObject = std::make_shared<ObjectType>(_szBuffer);
+		delete[] _szBuffer;
+		*/
 		delete[] szBuffer;
 
 		return CacheErrorCode::Success;

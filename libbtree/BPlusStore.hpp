@@ -124,7 +124,8 @@ public:
 
                 // earlier indexnodes only had UID, now it contains pointers along side as well.. so updating the pointer. but it iterates again. should not we keep the pointer directly as well?
                 // check for last node..!!!
-                std::shared_ptr<IndexNodeType> _ptr = std::get<std::shared_ptr<IndexNodeType>>(ptrLastNode->getInnerData());
+                IndexNodeType* _ptr = reinterpret_cast<IndexNodeType*>(ptrLastNode->_ptrobj);
+                //std::shared_ptr<IndexNodeType> _ptr = std::get<std::shared_ptr<IndexNodeType>>(ptrLastNode->getInnerData());
                 _ptr->template updateChildUID_<ObjectType>(ptrCurrentNode, uidCurrentNode, uidCurrentNode);
 
                 // as mentioned above..
@@ -149,7 +150,8 @@ public:
             {
                 if (ptrLastNode != nullptr)
                 {
-                    std::shared_ptr<IndexNodeType> ptrIndexNode = std::get<std::shared_ptr<IndexNodeType>>(ptrLastNode->getInnerData());
+                    IndexNodeType* ptrIndexNode = reinterpret_cast<IndexNodeType*>(ptrLastNode->_ptrobj);
+                    //std::shared_ptr<IndexNodeType> ptrIndexNode = std::get<std::shared_ptr<IndexNodeType>>(ptrLastNode->getInnerData());
 
 #ifdef __TRACK_CACHE_FOOTPRINT__
                     nMemoryFootprint += ptrIndexNode->template updateChildUID<ObjectType>(ptrCurrentNode, uidCurrentNode, *uidUpdated);
