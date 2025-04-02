@@ -314,14 +314,17 @@ public:
 #endif //__TRACK_CACHE_FOOTPRINT__
 	{
 		const KeyType* key = nullptr;
-		if (std::holds_alternative<std::shared_ptr<SelfType>>(ptrChildNode->getInnerData()))
+		if (ptrChildNode->getObjectType() == SelfType::UID)
+		//if (std::holds_alternative<std::shared_ptr<SelfType>>(ptrChildNode->getInnerData()))
 		{
-			std::shared_ptr<SelfType> ptrIndexNode = std::get<std::shared_ptr<SelfType>>(ptrChildNode->getInnerData());
+			SelfType* ptrIndexNode = reinterpret_cast<SelfType*>(ptrChildNode->getInnerData());
+			//std::shared_ptr<SelfType> ptrIndexNode = std::get<std::shared_ptr<SelfType>>(ptrChildNode->getInnerData());
 			key = &ptrIndexNode->getFirstChild();
 		}
 		else //if (std::holds_alternative<std::shared_ptr<DataNodeType>>(ptrChildNode->getInnerData()))
 		{
-			std::shared_ptr<DataNodeType> ptrDataNode = std::get<std::shared_ptr<DataNodeType>>(ptrChildNode->getInnerData());
+			DataNodeType* ptrDataNode = reinterpret_cast<DataNodeType*>(ptrChildNode->getInnerData());
+			//std::shared_ptr<DataNodeType> ptrDataNode = std::get<std::shared_ptr<DataNodeType>>(ptrChildNode->getInnerData());
 			key = &ptrDataNode->getFirstChild();
 		}
 
@@ -438,13 +441,13 @@ public:
 #ifdef __TREE_WITH_CACHE__
 
 #ifdef __TRACK_CACHE_FOOTPRINT__
-	inline ErrorCode rebalanceIndexNode(std::shared_ptr<CacheType>& ptrCache, const ObjectUIDType& uidChild, std::shared_ptr<SelfType>& ptrChild, const KeyType& key, size_t nDegree, std::optional<ObjectUIDType>& uidObjectToDelete, std::optional<ObjectUIDType>& uidAffectedNode, CacheType::ObjectTypePtr& ptrAffectedNode, int32_t& nMemoryFootprint)
+	inline ErrorCode rebalanceIndexNode(std::shared_ptr<CacheType>& ptrCache, const ObjectUIDType& uidChild, SelfType* ptrChild, const KeyType& key, size_t nDegree, std::optional<ObjectUIDType>& uidObjectToDelete, std::optional<ObjectUIDType>& uidAffectedNode, CacheType::ObjectTypePtr& ptrAffectedNode, int32_t& nMemoryFootprint)
 #else //__TRACK_CACHE_FOOTPRINT__
-	inline ErrorCode rebalanceIndexNode(std::shared_ptr<CacheType>& ptrCache, const ObjectUIDType& uidChild, std::shared_ptr<SelfType>& ptrChild, const KeyType& key, size_t nDegree, std::optional<ObjectUIDType>& uidObjectToDelete, std::optional<ObjectUIDType>& uidAffectedNode, CacheType::ObjectTypePtr& ptrAffectedNode)
+	inline ErrorCode rebalanceIndexNode(std::shared_ptr<CacheType>& ptrCache, const ObjectUIDType& uidChild, SelfType* ptrChild, const KeyType& key, size_t nDegree, std::optional<ObjectUIDType>& uidObjectToDelete, std::optional<ObjectUIDType>& uidAffectedNode, CacheType::ObjectTypePtr& ptrAffectedNode)
 #endif //__TRACK_CACHE_FOOTPRINT__
 
 #else //__TREE_WITH_CACHE__
-	inline ErrorCode rebalanceIndexNode(std::shared_ptr<CacheType>& ptrCache, const ObjectUIDType& uidChild, std::shared_ptr<SelfType>& ptrChild, const KeyType& key, size_t nDegree, std::optional<ObjectUIDType>& uidObjectToDelete)
+	inline ErrorCode rebalanceIndexNode(std::shared_ptr<CacheType>& ptrCache, const ObjectUIDType& uidChild, SelfType* ptrChild, const KeyType& key, size_t nDegree, std::optional<ObjectUIDType>& uidObjectToDelete)
 #endif //__TREE_WITH_CACHE__
 	{
 		typedef typename CacheType::ObjectTypePtr ObjectTypePtr;
@@ -452,8 +455,8 @@ public:
 		ObjectTypePtr ptrLHSStorageObject = nullptr;
 		ObjectTypePtr ptrRHSStorageObject = nullptr;
 
-		std::shared_ptr<SelfType> ptrLHSNode = nullptr;
-		std::shared_ptr<SelfType> ptrRHSNode = nullptr;
+		SelfType* ptrLHSNode = nullptr;
+		SelfType* ptrRHSNode = nullptr;
 
 #ifdef __TREE_WITH_CACHE__
 		uidAffectedNode = std::nullopt;
@@ -477,7 +480,8 @@ public:
 
 			//if (std::holds_alternative<std::shared_ptr<SelfType>>(ptrLHSStorageObject->getInnerData()))
 			{
-				ptrLHSNode = std::get<std::shared_ptr<SelfType>>(ptrLHSStorageObject->getInnerData());
+				ptrLHSNode = reinterpret_cast<SelfType*>(ptrLHSStorageObject->getInnerData());
+				//ptrLHSNode = std::get<std::shared_ptr<SelfType>>(ptrLHSStorageObject->getInnerData());
 			}
 
 #ifdef __TREE_WITH_CACHE__
@@ -536,7 +540,8 @@ public:
 
 			//if (std::holds_alternative<std::shared_ptr<SelfType>>(ptrRHSStorageObject->getInnerData()))
 			{
-				ptrRHSNode = std::get<std::shared_ptr<SelfType>>(ptrRHSStorageObject->getInnerData());
+				ptrRHSNode = reinterpret_cast<SelfType*>(ptrRHSStorageObject->getInnerData());
+				//ptrRHSNode = std::get<std::shared_ptr<SelfType>>(ptrRHSStorageObject->getInnerData());
 			}
 
 #ifdef __TREE_WITH_CACHE__
@@ -590,13 +595,13 @@ public:
 #ifdef __TREE_WITH_CACHE__
 
 #ifdef __TRACK_CACHE_FOOTPRINT__
-	inline ErrorCode rebalanceDataNode(std::shared_ptr<CacheType>& ptrCache, const ObjectUIDType& uidChild, std::shared_ptr<DataNodeType>& ptrChild, const KeyType& key, size_t nDegree, std::optional<ObjectUIDType>& uidObjectToDelete, std::optional<ObjectUIDType>& uidAffectedNode, CacheType::ObjectTypePtr& ptrAffectedNode, int32_t& nMemoryFootprint)
+	inline ErrorCode rebalanceDataNode(std::shared_ptr<CacheType>& ptrCache, const ObjectUIDType& uidChild, DataNodeType* ptrChild, const KeyType& key, size_t nDegree, std::optional<ObjectUIDType>& uidObjectToDelete, std::optional<ObjectUIDType>& uidAffectedNode, CacheType::ObjectTypePtr& ptrAffectedNode, int32_t& nMemoryFootprint)
 #else //__TRACK_CACHE_FOOTPRINT__
-	inline ErrorCode rebalanceDataNode(std::shared_ptr<CacheType>& ptrCache, const ObjectUIDType& uidChild, std::shared_ptr<DataNodeType>& ptrChild, const KeyType& key, size_t nDegree, std::optional<ObjectUIDType>& uidObjectToDelete, std::optional<ObjectUIDType>& uidAffectedNode, CacheType::ObjectTypePtr& ptrAffectedNode)
+	inline ErrorCode rebalanceDataNode(std::shared_ptr<CacheType>& ptrCache, const ObjectUIDType& uidChild, DataNodeType* ptrChild, const KeyType& key, size_t nDegree, std::optional<ObjectUIDType>& uidObjectToDelete, std::optional<ObjectUIDType>& uidAffectedNode, CacheType::ObjectTypePtr& ptrAffectedNode)
 #endif //__TRACK_CACHE_FOOTPRINT__
 
 #else //__TREE_WITH_CACHE__
-	inline ErrorCode rebalanceDataNode(std::shared_ptr<CacheType>& ptrCache, const ObjectUIDType& uidChild, std::shared_ptr<DataNodeType>& ptrChild, const KeyType& key, size_t nDegree, std::optional<ObjectUIDType>& uidObjectToDelete)
+	inline ErrorCode rebalanceDataNode(std::shared_ptr<CacheType>& ptrCache, const ObjectUIDType& uidChild, DataNodeType* ptrChild, const KeyType& key, size_t nDegree, std::optional<ObjectUIDType>& uidObjectToDelete)
 #endif //__TREE_WITH_CACHE__
 	{
 		typedef typename CacheType::ObjectTypePtr ObjectTypePtr;
@@ -604,8 +609,8 @@ public:
 		ObjectTypePtr ptrLHSStorageObject = nullptr;
 		ObjectTypePtr ptrRHSStorageObject = nullptr;
 
-		std::shared_ptr<DataNodeType> ptrLHSNode = nullptr;
-		std::shared_ptr<DataNodeType> ptrRHSNode = nullptr;
+		DataNodeType* ptrLHSNode = nullptr;
+		DataNodeType* ptrRHSNode = nullptr;
 
 #ifdef __TREE_WITH_CACHE__
 		uidAffectedNode = std::nullopt;
@@ -629,7 +634,8 @@ public:
 
 			//if (std::holds_alternative<std::shared_ptr<DataNodeType>>(ptrLHSStorageObject->getInnerData()))
 			{
-				ptrLHSNode = std::get<std::shared_ptr<DataNodeType>>(ptrLHSStorageObject->getInnerData());
+				ptrLHSNode = reinterpret_cast<DataNodeType*>(ptrLHSStorageObject->getInnerData());
+				//ptrLHSNode = std::get<std::shared_ptr<DataNodeType>>(ptrLHSStorageObject->getInnerData());
 			}
 
 #ifdef __TREE_WITH_CACHE__
@@ -689,7 +695,7 @@ public:
 
 			//if (std::holds_alternative<std::shared_ptr<DataNodeType>>(ptrRHSStorageObject->getInnerData()))
 			{
-				ptrRHSNode = std::get<std::shared_ptr<DataNodeType>>(ptrRHSStorageObject->getInnerData());
+				ptrRHSNode = reinterpret_cast<DataNodeType*>(ptrRHSStorageObject->getInnerData());
 			}
 
 #ifdef __TREE_WITH_CACHE__
@@ -797,9 +803,9 @@ public:
 	}
 
 #ifdef __TRACK_CACHE_FOOTPRINT__
-	inline void moveAnEntityFromLHSSibling(shared_ptr<SelfType> ptrLHSSibling, KeyType& pivotKeyForEntity, KeyType& pivotKeyForParent, int32_t& nMemoryFootprint)
+	inline void moveAnEntityFromLHSSibling(SelfType* ptrLHSSibling, KeyType& pivotKeyForEntity, KeyType& pivotKeyForParent, int32_t& nMemoryFootprint)
 #else //__TRACK_CACHE_FOOTPRINT__
-	inline void moveAnEntityFromLHSSibling(shared_ptr<SelfType> ptrLHSSibling, KeyType& pivotKeyForEntity, KeyType& pivotKeyForParent)
+	inline void moveAnEntityFromLHSSibling(SelfType* ptrLHSSibling, KeyType& pivotKeyForEntity, KeyType& pivotKeyForParent)
 #endif //__TRACK_CACHE_FOOTPRINT__
 	{
 #ifdef __TRACK_CACHE_FOOTPRINT__
@@ -866,9 +872,9 @@ public:
 	}
 
 #ifdef __TRACK_CACHE_FOOTPRINT__
-	inline void moveAnEntityFromRHSSibling(shared_ptr<SelfType> ptrRHSSibling, KeyType& pivotKeyForEntity, KeyType& pivotKeyForParent, int32_t& nMemoryFootprint)
+	inline void moveAnEntityFromRHSSibling(SelfType* ptrRHSSibling, KeyType& pivotKeyForEntity, KeyType& pivotKeyForParent, int32_t& nMemoryFootprint)
 #else //__TRACK_CACHE_FOOTPRINT__
-	inline void moveAnEntityFromRHSSibling(shared_ptr<SelfType> ptrRHSSibling, KeyType& pivotKeyForEntity, KeyType& pivotKeyForParent)
+	inline void moveAnEntityFromRHSSibling(SelfType* ptrRHSSibling, KeyType& pivotKeyForEntity, KeyType& pivotKeyForParent)
 #endif //__TRACK_CACHE_FOOTPRINT__
 	{
 #ifdef __TRACK_CACHE_FOOTPRINT__
@@ -935,9 +941,9 @@ public:
 	}
 
 #ifdef __TRACK_CACHE_FOOTPRINT__
-	inline void mergeNodes(shared_ptr<SelfType> ptrSibling, KeyType& pivotKey, int32_t& nMemoryFootprint)
+	inline void mergeNodes(SelfType* ptrSibling, KeyType& pivotKey, int32_t& nMemoryFootprint)
 #else //__TRACK_CACHE_FOOTPRINT__
-	inline void mergeNodes(shared_ptr<SelfType> ptrSibling, KeyType& pivotKey)
+	inline void mergeNodes(SelfType* ptrSibling, KeyType& pivotKey)
 #endif //__TRACK_CACHE_FOOTPRINT__
 	{
 #ifdef __TRACK_CACHE_FOOTPRINT__

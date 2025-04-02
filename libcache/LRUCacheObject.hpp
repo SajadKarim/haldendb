@@ -10,6 +10,7 @@
 #include <iostream>
 #include <fstream>
 
+#include "ObjectFatUID.h"
 #include "ErrorCodes.h"
 
 template <typename T>
@@ -73,42 +74,51 @@ public:
 
 private:
 	bool m_bDirty;
-	ValueCoreTypesWrapper m_objData;
+
+	void* m_ptrCoreObject;
+	uint8_t m_nCoreObjectType;
+
+	//ValueCoreTypesWrapper m_objData;
 	std::shared_mutex m_mtx;
 
+	ObjectFatUID m_uid;
 public:
 	~LRUCacheObject()
 	{
-		resetVaraint(m_objData);
+		if (m_ptrCoreObject != nullptr)
+			delete m_ptrCoreObject;
+
+		//resetVaraint(m_objData);
 	}
 
-	template<class ValueCoreType>
-	LRUCacheObject(std::shared_ptr<ValueCoreType> ptrCoreObject)
+	//template<class ValueCoreType>
+	LRUCacheObject(void* ptrCoreObject, uint8_t nCoreObjectType)
 		: m_bDirty(true)
 	{
-		m_objData = ptrCoreObject;
+		m_ptrCoreObject = ptrCoreObject;
+		m_nCoreObjectType = nCoreObjectType;
 	}
 
 	LRUCacheObject(std::fstream& fs)
 		: m_bDirty(false)
 	{
-		CoreTypesMarshaller::template deserialize<ValueCoreTypesWrapper, ValueCoreTypes...>(fs, m_objData);
+		CoreTypesMarshaller::template deserialize<ValueCoreTypesWrapper, ValueCoreTypes...>(fs, m_ptrCoreObject, m_nCoreObjectType);
 	}
 
 	LRUCacheObject(const char* szBuffer)
 		: m_bDirty(false)
 	{
-		CoreTypesMarshaller::template deserialize<ValueCoreTypesWrapper, ValueCoreTypes...>(szBuffer, m_objData);
+		CoreTypesMarshaller::template deserialize<ValueCoreTypesWrapper, ValueCoreTypes...>(szBuffer, m_ptrCoreObject, m_nCoreObjectType);
 	}
 
 	inline void serialize(std::fstream& fs, uint8_t& uidObject, uint32_t& nBufferSize)
 	{
-		CoreTypesMarshaller::template serialize<ValueCoreTypes...>(fs, m_objData, uidObject, nBufferSize);
+		CoreTypesMarshaller::template serialize<ValueCoreTypes...>(fs, m_ptrCoreObject, m_nCoreObjectType, nBufferSize);
 	}
 
 	inline void serialize(char*& szBuffer, uint8_t& uidObject, uint32_t& nBufferSize)
 	{
-		CoreTypesMarshaller::template serialize<ValueCoreTypes...>(szBuffer, m_objData, uidObject, nBufferSize);
+		CoreTypesMarshaller::template serialize<ValueCoreTypes...>(szBuffer, m_ptrCoreObject, m_nCoreObjectType, nBufferSize);
 	}
 
 	inline bool getDirtyFlag() const 
@@ -121,9 +131,14 @@ public:
 		m_bDirty = bDirty;
 	}
 
-	inline const ValueCoreTypesWrapper& getInnerData() const
+	inline uint8_t getObjectType() const
 	{
-		return m_objData;
+		return m_nCoreObjectType;
+	}
+
+	inline void* getInnerData()
+	{
+		return m_ptrCoreObject;
 	}
 
 	inline std::shared_mutex& getMutex()
@@ -143,11 +158,11 @@ public:
 
 	inline size_t getMemoryFootprint()
 	{
-		return sizeof(*this) + getVariantMemoryFootprint(m_objData);
+		return sizeof(*this);// fix this--> +getVariantMemoryFootprint(m_objData);
 	}
 
 	inline bool isIndexNode()
 	{
-		return sizeof(*this) + doesVariantContainIndex(m_objData);
+		return sizeof(*this);// fix this--> +doesVariantContainIndex(m_objData);
 	}
 };

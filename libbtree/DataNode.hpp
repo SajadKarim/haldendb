@@ -470,9 +470,9 @@ public:
 
 	// Moves an entity from the left-hand sibling to the current node
 #ifdef __TRACK_CACHE_FOOTPRINT__
-	inline void moveAnEntityFromLHSSibling(std::shared_ptr<SelfType> ptrLHSSibling, KeyType& pivotKeyForParent, int32_t& nMemoryFootprint)
+	inline void moveAnEntityFromLHSSibling(SelfType* ptrLHSSibling, KeyType& pivotKeyForParent, int32_t& nMemoryFootprint)
 #else //__TRACK_CACHE_FOOTPRINT__
-	inline void moveAnEntityFromLHSSibling(std::shared_ptr<SelfType> ptrLHSSibling, KeyType& pivotKeyForParent)
+	inline void moveAnEntityFromLHSSibling(SelfType* ptrLHSSibling, KeyType& pivotKeyForParent)
 #endif //__TRACK_CACHE_FOOTPRINT__
 	{
 #ifdef __TRACK_CACHE_FOOTPRINT__
@@ -540,9 +540,9 @@ public:
 
 	// Merges the sibling node with the current node
 #ifdef __TRACK_CACHE_FOOTPRINT__
-	inline void mergeNode(std::shared_ptr<SelfType> ptrSibling, int32_t& nMemoryFootprint)
+	inline void mergeNode(SelfType* ptrSibling, int32_t& nMemoryFootprint)
 #else //__TRACK_CACHE_FOOTPRINT__
-	inline void mergeNode(std::shared_ptr<SelfType> ptrSibling)
+	inline void mergeNode(SelfType* ptrSibling)
 #endif //__TRACK_CACHE_FOOTPRINT__
 	{
 #ifdef __TRACK_CACHE_FOOTPRINT__
@@ -586,9 +586,9 @@ public:
 
 	// Moves an entity from the right-hand sibling to the current node
 #ifdef __TRACK_CACHE_FOOTPRINT__
-	inline void moveAnEntityFromRHSSibling(std::shared_ptr<SelfType> ptrRHSSibling, KeyType& pivotKeyForParent, int32_t& nMemoryFootprint)
+	inline void moveAnEntityFromRHSSibling(SelfType* ptrRHSSibling, KeyType& pivotKeyForParent, int32_t& nMemoryFootprint)
 #else //__TRACK_CACHE_FOOTPRINT__
-	inline void moveAnEntityFromRHSSibling(std::shared_ptr<SelfType> ptrRHSSibling, KeyType& pivotKeyForParent)
+	inline void moveAnEntityFromRHSSibling(SelfType* ptrRHSSibling, KeyType& pivotKeyForParent)
 #endif //__TRACK_CACHE_FOOTPRINT__
 	{
 #ifdef __TRACK_CACHE_FOOTPRINT__

@@ -457,9 +457,9 @@ public:
 	template<class Type, typename... ArgsType>
 	CacheErrorCode createObjectOfType(std::optional<ObjectUIDType>& uidObject, const ArgsType... args)
 	{
-		std::shared_ptr<Type> ptrCoreObject = std::make_shared<Type>(args...);
+		Type* ptrCoreObject = new Type(args...);
 
-		std::shared_ptr<ObjectType> ptrStorageObject = std::make_shared<ObjectType>(ptrCoreObject);
+		std::shared_ptr<ObjectType> ptrStorageObject = std::make_shared<ObjectType>(ptrCoreObject, Type::UID);
 
 		ObjectUIDType uidTemp;
 		ObjectUIDType::createAddressFromVolatilePointer(uidTemp, Type::UID, reinterpret_cast<uintptr_t>(ptrStorageObject.get()));
@@ -512,7 +512,7 @@ public:
 	template<class Type, typename... ArgsType>
 	CacheErrorCode createObjectOfType(std::optional<ObjectUIDType>& uidObject, ObjectTypePtr& ptrStorageObject, const ArgsType... args)
 	{
-		ptrStorageObject = std::make_shared<ObjectType>(std::make_shared<Type>(args...));
+		ptrStorageObject = std::make_shared<ObjectType>(new Type(args...), Type::UID);
 
 		ObjectUIDType uidTemp;
 		ObjectUIDType::createAddressFromVolatilePointer(uidTemp, Type::UID, reinterpret_cast<uintptr_t>(ptrStorageObject.get()));
@@ -564,9 +564,9 @@ public:
 	template<class Type, typename... ArgsType>
 	CacheErrorCode createObjectOfType(std::optional<ObjectUIDType>& uidObject, std::shared_ptr<Type>& ptrCoreObject, const ArgsType... args)
 	{
-		ptrCoreObject = std::make_shared<Type>(args...);
+		ptrCoreObject = new Type(args...);
 
-		std::shared_ptr<ObjectType> ptrStorageObject = std::make_shared<ObjectType>(ptrCoreObject);
+		std::shared_ptr<ObjectType> ptrStorageObject = std::make_shared<ObjectType>(ptrCoreObject, Type::UID);
 
 		uidObject = ObjectUIDType::createAddressFromVolatilePointer(Type::UID, reinterpret_cast<uintptr_t>(ptrStorageObject.get()));
 

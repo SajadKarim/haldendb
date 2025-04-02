@@ -8,56 +8,85 @@ class TypeMarshaller
 {
 public:
 	template <typename... ValueCoreTypes>
-	static void serialize(std::fstream& os, const std::variant<std::shared_ptr<ValueCoreTypes>...>& ptrObject, uint8_t& uidObject, uint32_t& nBufferSize)
-	{
-		std::visit([&os, &uidObject, &nBufferSize](const auto& value) {
-			value->writeToStream(os, uidObject, nBufferSize);
-			}, ptrObject);
-	}
-
-	template <typename... ValueCoreTypes>
-	static void serialize(char*& szBuffer, const std::variant<std::shared_ptr<ValueCoreTypes>...>& ptrObject, uint8_t& uidObject, uint32_t& nBufferSize)
-	{
-		std::visit([&szBuffer, &uidObject, &nBufferSize](const auto& value) {
-			value->serialize(szBuffer, uidObject, nBufferSize);
-			}, ptrObject);
-	}
-
-	template <typename ObjectType, typename... ValueCoreTypes>
-	static void deserialize(std::fstream& fs, ObjectType& ptrObject)
+	static void serialize(std::fstream& os, void* ptrObject, uint8_t& nObjectType, uint32_t& nBufferSize)
 	{
 		using TypeA = typename NthType<0, ValueCoreTypes...>::type;
 		using TypeB = typename NthType<1, ValueCoreTypes...>::type;
 
-		uint8_t uidObjectType;
-		fs.read(reinterpret_cast<char*>(&uidObjectType), sizeof(uint8_t));
+		switch (nObjectType)
+		{
+			case TypeA::UID:
+			{
+				TypeA* _ptrObject = reinterpret_cast<TypeA*>(ptrObject);
+				_ptrObject->writeToStream(os, nObjectType, nBufferSize);
+				break;
+			}
+			case TypeB::UID:
+			{
+				TypeB* _ptrObject = reinterpret_cast<TypeB*>(ptrObject);
+				_ptrObject->writeToStream(os, nObjectType, nBufferSize);
+				break;
+			}
+		}
+	}
 
-		switch (uidObjectType)
+	template <typename... ValueCoreTypes>
+	static void serialize(char*& szBuffer, void* ptrObject, uint8_t& nObjectType, uint32_t& nBufferSize)
+	{
+		using TypeA = typename NthType<0, ValueCoreTypes...>::type;
+		using TypeB = typename NthType<1, ValueCoreTypes...>::type;
+
+		switch (nObjectType)
+		{
+			case TypeA::UID:
+			{
+				TypeA* _ptrObject = reinterpret_cast<TypeA*>(ptrObject);
+				_ptrObject->serialize(szBuffer, nObjectType, nBufferSize);
+				break;
+			}
+			case TypeB::UID:
+			{	
+				TypeB* _ptrObject = reinterpret_cast<TypeB*>(ptrObject);
+				_ptrObject->serialize(szBuffer, nObjectType, nBufferSize);
+				break;
+			}
+		}
+	}
+
+	template <typename ObjectType, typename... ValueCoreTypes>
+	static void deserialize(std::fstream& fs, void*& ptrObject, uint8_t& nObjectType)
+	{
+		using TypeA = typename NthType<0, ValueCoreTypes...>::type;
+		using TypeB = typename NthType<1, ValueCoreTypes...>::type;
+
+		fs.read(reinterpret_cast<char*>(&nObjectType), sizeof(uint8_t));
+
+		switch (nObjectType)
 		{
 		case TypeA::UID:
-			ptrObject = std::make_shared<TypeA>(fs);
+			ptrObject = new TypeA(fs);
 			break;
 		case TypeB::UID:
-			ptrObject = std::make_shared<TypeB>(fs);
+			ptrObject = new TypeB(fs);
 			break;
 		}
 	}
 
 	template <typename ObjectType, typename... ValueCoreTypes>
-	static void deserialize(const char* szData, ObjectType& ptrObject)
+	static void deserialize(const char* szData, void*& ptrObject, uint8_t& nObjectType)
 	{
 		using TypeA = typename NthType<0, ValueCoreTypes...>::type;
 		using TypeB = typename NthType<1, ValueCoreTypes...>::type;
 
-		uint8_t uidObjectType;
+		nObjectType = szData[0];
 
-		switch (szData[0])
+		switch (nObjectType)
 		{
 		case TypeA::UID:
-			ptrObject = std::make_shared<TypeA>(szData);
+			ptrObject = new TypeA(szData);
 			break;
 		case TypeB::UID:
-			ptrObject = std::make_shared<TypeB>(szData);
+			ptrObject = new TypeB(szData);
 			break;
 		default:
 			std::cout << "Deserialization request for Uknown UID." << std::endl;
