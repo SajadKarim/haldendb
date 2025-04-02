@@ -73,6 +73,17 @@ public:
 
 			uint32_t nValuesSize = nTotalEntries * sizeof(ValueType);
 			memcpy(m_vtValues.data(), szData + nOffset, nValuesSize);
+
+			for (size_t nIndex = 0; nIndex < m_vtKeys.size(); nIndex++)
+			{
+				std::cout
+					<< "(K: "
+					<< m_vtKeys[nIndex]
+					<< ", V: "
+					<< m_vtValues[nIndex]
+					<< "),";
+			}
+			std::cout << std::endl;
 		}
 		else
 		{
@@ -161,6 +172,19 @@ public:
 			uint16_t nValuesSize = nTotalEntries * sizeof(ValueType);
 			memcpy(szBuffer + nOffset, m_vtValues.data(), nValuesSize);
 			nOffset += nValuesSize;
+
+
+			for (size_t nIndex = 0; nIndex < m_vtKeys.size(); nIndex++)
+			{
+				std::cout
+					<< "(K: "
+					<< m_vtKeys[nIndex]
+					<< ", V: "
+					<< m_vtValues[nIndex]
+					<< "),";
+			}
+			std::cout << std::endl;
+
 		}
 		else
 		{

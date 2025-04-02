@@ -118,6 +118,8 @@ public:
 
 	ObjectType* getObject(const ObjectUIDType& uidObject)
 	{
+		std::cout << "fetch: o: " << uidObject.toString() << std::endl;
+
 		char* szBuffer = new char[uidObject.getPersistentObjectSize() + 1];
 		memset(szBuffer, '\0', uidObject.getPersistentObjectSize() + 1);
 
@@ -205,6 +207,7 @@ public:
 		*/
 		delete[] szBuffer;
 
+		std::cout << "flushed: o: " << uidObject.toString() << ", n: " << uidUpdated.toString()  << std::endl;
 		return CacheErrorCode::Success;
 	}
 

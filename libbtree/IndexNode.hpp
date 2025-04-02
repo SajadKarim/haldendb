@@ -44,7 +44,7 @@ public:
 			ptr = nullptr;
 		}
 		
-		XYZ(const ObjectUIDType& _uid, const CacheObjectPtr _obj)
+		XYZ(const ObjectUIDType& _uid, const CacheObjectPtr& _obj)
 			: uid(_uid)
 		{
 			
@@ -155,6 +155,15 @@ public:
 				ptr.ptr = nullptr;
 				nOffset += sizeof(typename ObjectUIDType::NodeUID);
 			}
+
+			for (size_t nIndex = 0; nIndex < m_vtPivots.size(); nIndex++)
+			{
+				std::cout
+					<< "(K: "
+					<< m_vtPivots[nIndex]
+					<< "),";
+			}
+			std::cout << std::endl;
 		}
 		else
 		{
@@ -348,7 +357,14 @@ public:
 				//assert(*(ptrRawData->ptrChildren + idx + 1) == m_vtChildren[idx + 1]);
 			}
 
-
+			for (size_t nIndex = 0; nIndex < m_vtPivots.size(); nIndex++)
+			{
+				std::cout
+					<< "(K: "
+					<< m_vtPivots[nIndex]
+					<< "),";
+			}
+			std::cout << std::endl;
 		}
 		else
 		{
@@ -389,6 +405,36 @@ public:
 
 		uid = m_vtChildren[getChildNodeIdx(key)].uid;
 		ptr = m_vtChildren[getChildNodeIdx(key)].ptr;
+
+
+		//m_ptrCache->getObject(uidCurrentNode, ptrCurrentNode, uidUpdated);
+	}
+
+	// Gets the child node corresponding to the given key
+	template <typename CacheType>
+	inline void getChild(std::shared_ptr<CacheType>& ptrCache, const KeyType& key, ObjectUIDType& uid, CacheObjectPtr& ptr)
+	{
+		size_t idx = getChildNodeIdx(key);
+		XYZ& instnace = m_vtChildren[idx];
+
+		if (instnace.uid_updated)
+		{
+			instnace.uid = *m_vtChildren[getChildNodeIdx(key)].uid_updated;
+			instnace.uid_updated = std::nullopt;
+			assert(instnace.ptr == nullptr);
+			
+			std::optional< ObjectUIDType> uidUpdated;
+			ptrCache->getObject(instnace.uid, instnace.ptr, uidUpdated);
+			instnace.ptr->hook_(instnace.ptr, instnace.uid_updated);
+		}
+		else
+		{
+			if(instnace.uid.getMediaType() == 1 && instnace.ptr == nullptr) 
+				assert(false);
+		}
+
+		uid = instnace.uid;
+		ptr = instnace.ptr;		
 	}
 
 	//inline void updateChildPtr(const KeyType& key, ObjectUIDType& uid, CacheObjectPtr& ptr) const

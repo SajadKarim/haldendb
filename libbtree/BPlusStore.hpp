@@ -194,7 +194,7 @@ public:
                 uidLastNode = uidCurrentNode;
                 ptrLastNode = ptrCurrentNode;
 
-                _ptrIndexNode->getChild(key, uidCurrentNode, ptrCurrentNode); instead fetch object directly.. bu setting it insdie!!!! new logic?
+                _ptrIndexNode->getChild<CacheType>(m_ptrCache, key, uidCurrentNode, ptrCurrentNode); //instead fetch object directly.. bu setting it insdie!!!! new logic?
             }
             else //if (std::holds_alternative<std::shared_ptr<DataNodeType>>(ptrCurrentNode->getInnerData()))
             {
@@ -504,7 +504,8 @@ public:
 
                 //uidCurrentNode = ptrIndexNode->getChild(key);
 
-                 _ptrIndexNode->getChild(key, uidCurrentNode, ptrCurrentNode);
+                 //_ptrIndexNode->getChild(key, uidCurrentNode, ptrCurrentNode);
+                 _ptrIndexNode->getChild<CacheType>(m_ptrCache, key, uidCurrentNode, ptrCurrentNode);
             }
             else //if (std::holds_alternative<std::shared_ptr<DataNodeType>>(ptrCurrentNode->getInnerData()))
             {

@@ -1272,17 +1272,26 @@ private:
 					throw new std::logic_error(".....");   // TODO: critical log.
 				}
 
-				if (m_mpUIDUpdates.find(m_ptrTail->m_uidSelf) != m_mpUIDUpdates.end())
-				{
-					auto a = m_mpUIDUpdates[m_ptrTail ->m_uidSelf];
-					std::cout << "Critical State: Can't proceed with the flushItemsToStorage operations as object already exists in Updates' list." << std::endl;
-					throw new std::logic_error(".....");   // TODO: critical log.
-				}
+				//if (m_mpUIDUpdates.find(m_ptrTail->m_uidSelf) != m_mpUIDUpdates.end())
+				//{
+				//	auto a = m_mpUIDUpdates[m_ptrTail ->m_uidSelf];
+				//	std::cout << "Critical State: Can't proceed with the flushItemsToStorage operations as object already exists in Updates' list." << std::endl;
+				//	throw new std::logic_error(".....");   // TODO: critical log.
+				//}
 
-				m_mpUIDUpdates[m_ptrTail->m_uidSelf] = std::make_pair(uidUpdated, m_ptrTail);
+				//m_mpUIDUpdates[m_ptrTail->m_uidSelf] = std::make_pair(uidUpdated, m_ptrTail);
 
 
 				m_ptrTail->updateUID(uidUpdated);
+			}
+			else
+			{
+				if (m_ptrTail->m_uidSelf.getMediaType() == 1)
+				{
+					std::cout << "Critical State: Failed to add object to Storage." << std::endl;
+					throw new std::logic_error(".....");   // TODO: critical log.
+				}
+				std::cout << "..." << std::endl;
 			}
 
 			//m_mpObjects.erase(m_ptrTail->m_uidSelf);
