@@ -30,7 +30,7 @@ namespace BPlusStore_NoCache_Suite
         typedef uintptr_t ObjectUIDType;
 
         typedef DataNode<KeyType, ValueType, ObjectUIDType, TYPE_UID::DATA_NODE_STRING_STRING> DataNodeType;
-        typedef IndexNode<KeyType, ValueType, ObjectUIDType, DataNodeType, TYPE_UID::INDEX_NODE_STRING_STRING> IndexNodeType;
+        typedef IndexNode<KeyType, ValueType, ObjectUIDType, TypeMarshaller, DataNodeType, TYPE_UID::INDEX_NODE_STRING_STRING> IndexNodeType;
 
         typedef BPlusStore<KeyType, ValueType, NoCache<ObjectUIDType, NoCacheObject, DataNodeType, IndexNodeType>> BPlusStoreType;
 

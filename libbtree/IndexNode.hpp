@@ -12,10 +12,12 @@
 #include <fstream>
 #include <assert.h>
 #include "ErrorCodes.h"
+#include "LRUCacheObject.hpp"
 
 using namespace std;
 
-template <typename KeyType, typename ValueType, typename ObjectUIDType, typename DataNodeType, uint8_t TYPE_UID>
+template <typename KeyType, typename ValueType, typename ObjectUIDType, typename TypeMarshaller, typename DataNodeType, uint8_t TYPE_UID>
+
 class IndexNode
 {
 public:
@@ -23,10 +25,67 @@ public:
 	static const uint8_t UID = TYPE_UID;
 
 private:
-	typedef IndexNode<KeyType, ValueType, ObjectUIDType, DataNodeType, UID> SelfType;
+	typedef IndexNode<KeyType, ValueType, ObjectUIDType, TypeMarshaller, DataNodeType, UID> SelfType;
 
 	typedef std::vector<KeyType>::const_iterator KeyTypeIterator;
 	typedef std::vector<ObjectUIDType>::const_iterator CacheKeyTypeIterator;
+
+	typedef LRUCacheObject<ObjectUIDType, TypeMarshaller, DataNodeType, SelfType> CacheObject;
+	typedef std::shared_ptr<CacheObject> CacheObjectPtr;
+
+public:
+	struct PivotData {
+		ObjectUIDType uid;
+		CacheObjectPtr ptr;
+
+		//XYZ()
+		//{
+		//	ptr = nullptr;
+		//}
+
+		//XYZ(const ObjectUIDType& _uid, const CacheObjectPtr& _obj)
+		//	: uid(_uid)
+		//{
+
+		//	ptr = _obj;
+		//	_obj->hook_(ptr, uid_updated);
+		//	_obj->mtx(m_mtx);
+		//}
+
+		//// Copy constructor
+		//XYZ(const XYZ& other) {
+		//	uid = other.uid;
+		//	ptr = other.ptr;
+		//	if (ptr != nullptr) {
+		//		ptr->hook_(ptr, uid_updated);
+		//		ptr->mtx(m_mtx);
+		//	}
+
+		//	//m_mtx = ptr.m_mtx;
+		//}
+
+		///*XYZ(const XYZ&& other) {
+		//	uid = other.uid;
+		//	ptr = other.ptr;
+		//	if (ptr != nullptr) {
+		//		ptr->hook_(ptr);
+		//		ptr->mtx(m_mtx);
+		//	}
+		//}*/
+
+		//// Assignment operator
+		//XYZ& operator=(const XYZ& other) {
+		//	if (this != &other) {
+		//		uid = other.uid;
+		//		ptr = other.ptr;
+		//		if (ptr != nullptr) {
+		//			ptr->hook_(ptr, uid_updated);
+		//			ptr->mtx(m_mtx);
+		//		}
+		//	}
+		//	return *this;
+		//}
+	};
 
 private:
 	// Vector to store pivot keys and child node UIDs

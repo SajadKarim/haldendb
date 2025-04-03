@@ -35,7 +35,7 @@
 //        typedef DataNode<KeyType, ValueType, ObjectUIDType, TYPE_UID::DATA_NODE_STRING_STRING> DataNodeType;
 //        typedef IndexNode<KeyType, ValueType, ObjectUIDType, TYPE_UID::INDEX_NODE_STRING_STRING> IndexNodeType;
 //
-//        typedef LRUCacheObject<TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
+//        typedef LRUCacheObject<ObjectUIDType, TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
 //        typedef IFlushCallback<ObjectUIDType, ObjectType> ICallback;
 //
 //        typedef BPlusStore<ICallback, KeyType, ValueType, LRUCache<ICallback, PMemStorage<ICallback, ObjectUIDType, LRUCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreType;

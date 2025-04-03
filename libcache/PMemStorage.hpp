@@ -15,7 +15,7 @@
 template<
 	typename ICallback,
 	typename ObjectUIDType_,
-	template <typename, typename...> typename ValueType,
+	template <typename, typename, typename...> typename ValueType,
 	typename CoreTypesMarshaller,
 	typename... ValueCoreTypes
 >
@@ -91,7 +91,8 @@ class PMemStorage
 
 public:
 	typedef ObjectUIDType_ ObjectUIDType;
-	typedef ValueType<CoreTypesMarshaller, ValueCoreTypes...> ObjectType;
+	//typedef ValueType<CoreTypesMarshaller, ValueCoreTypes...> ObjectType;
+	typedef ValueType<ObjectUIDType, CoreTypesMarshaller, ValueCoreTypes...> ObjectType;
 
 private:
 	int nIsPMem;

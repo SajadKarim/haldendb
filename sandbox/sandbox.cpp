@@ -549,9 +549,9 @@ void test_for_ints()
             typedef ObjectFatUID ObjectUIDType;
 
             typedef DataNode<KeyType, ValueType, ObjectUIDType, TYPE_UID::DATA_NODE_INT_INT> DataNodeType;
-            typedef IndexNode<KeyType, ValueType, ObjectUIDType, DataNodeType, TYPE_UID::INDEX_NODE_INT_INT> IndexNodeType;
+            typedef IndexNode<KeyType, ValueType, ObjectUIDType, TypeMarshaller, DataNodeType, TYPE_UID::INDEX_NODE_INT_INT> IndexNodeType;
 
-            typedef LRUCacheObject<TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
+            typedef LRUCacheObject<ObjectUIDType, TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
             typedef IFlushCallback<ObjectUIDType, ObjectType> ICallback;
 
             typedef BPlusStore<ICallback, KeyType, ValueType, LRUCache<ICallback, VolatileStorage<ICallback, ObjectUIDType, LRUCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreType;
@@ -566,9 +566,9 @@ void test_for_ints()
             typedef ObjectFatUID ObjectUIDType;
 
             typedef DataNode<KeyType, ValueType, ObjectUIDType, TYPE_UID::DATA_NODE_INT_INT> DataNodeType;
-            typedef IndexNode<KeyType, ValueType, ObjectUIDType, DataNodeType, TYPE_UID::INDEX_NODE_INT_INT> IndexNodeType;
+            typedef IndexNode<KeyType, ValueType, ObjectUIDType, TypeMarshaller, DataNodeType, TYPE_UID::INDEX_NODE_INT_INT> IndexNodeType;
 
-            typedef LRUCacheObject<TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
+            typedef LRUCacheObject<ObjectUIDType, TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
             typedef IFlushCallback<ObjectUIDType, ObjectType> ICallback;
 
             typedef BPlusStore<ICallback, KeyType, ValueType, LRUCache<ICallback, FileStorage<ICallback, ObjectUIDType, LRUCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreType;
@@ -583,9 +583,9 @@ void test_for_ints()
             typedef ObjectFatUID ObjectUIDType;
 
             typedef DataNode<KeyType, ValueType, ObjectUIDType, TYPE_UID::DATA_NODE_INT_INT> DataNodeType;
-            typedef IndexNode<KeyType, ValueType, ObjectUIDType, DataNodeType, TYPE_UID::INDEX_NODE_INT_INT> IndexNodeType;
+            typedef IndexNode<KeyType, ValueType, ObjectUIDType, TypeMarshaller, DataNodeType, TYPE_UID::INDEX_NODE_INT_INT> IndexNodeType;
 
-            typedef LRUCacheObject<TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
+            typedef LRUCacheObject<ObjectUIDType, TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
             typedef IFlushCallback<ObjectUIDType, ObjectType> ICallback;
 
             typedef BPlusStore<ICallback, KeyType, ValueType, LRUCache<ICallback, PMemStorage<ICallback, ObjectUIDType, LRUCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreType;
@@ -711,9 +711,9 @@ void test_for_threaded()
             typedef ObjectFatUID ObjectUIDType;
 
             typedef DataNode<KeyType, ValueType, ObjectUIDType, TYPE_UID::DATA_NODE_INT_INT> DataNodeType;
-            typedef IndexNode<KeyType, ValueType, ObjectUIDType, DataNodeType, TYPE_UID::INDEX_NODE_INT_INT> IndexNodeType;
+            typedef IndexNode<KeyType, ValueType, ObjectUIDType, TypeMarshaller, DataNodeType, TYPE_UID::INDEX_NODE_INT_INT> IndexNodeType;
 
-            typedef LRUCacheObject<TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
+            typedef LRUCacheObject<ObjectUIDType, TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
             typedef IFlushCallback<ObjectUIDType, ObjectType> ICallback;
 
 
@@ -729,9 +729,9 @@ void test_for_threaded()
             typedef ObjectFatUID ObjectUIDType;
 
             typedef DataNode<KeyType, ValueType, ObjectUIDType, TYPE_UID::DATA_NODE_INT_INT> DataNodeType;
-            typedef IndexNode<KeyType, ValueType, ObjectUIDType, DataNodeType, TYPE_UID::INDEX_NODE_INT_INT> IndexNodeType;
+            typedef IndexNode<KeyType, ValueType, ObjectUIDType, TypeMarshaller, DataNodeType, TYPE_UID::INDEX_NODE_INT_INT> IndexNodeType;
 
-            typedef LRUCacheObject<TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
+            typedef LRUCacheObject<ObjectUIDType, TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
             typedef IFlushCallback<ObjectUIDType, ObjectType> ICallback;
 
             typedef BPlusStore<ICallback, KeyType, ValueType, LRUCache<ICallback, FileStorage<ICallback, ObjectUIDType, LRUCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreType;
@@ -746,9 +746,9 @@ void test_for_threaded()
             typedef ObjectFatUID ObjectUIDType;
 
             typedef DataNode<KeyType, ValueType, ObjectUIDType, TYPE_UID::DATA_NODE_INT_INT> DataNodeType;
-            typedef IndexNode<KeyType, ValueType, ObjectUIDType, DataNodeType, TYPE_UID::INDEX_NODE_INT_INT> IndexNodeType;
+            typedef IndexNode<KeyType, ValueType, ObjectUIDType, TypeMarshaller, DataNodeType, TYPE_UID::INDEX_NODE_INT_INT> IndexNodeType;
 
-            typedef LRUCacheObject<TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
+            typedef LRUCacheObject<ObjectUIDType, TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
             typedef IFlushCallback<ObjectUIDType, ObjectType> ICallback;
 
             typedef BPlusStore<ICallback, KeyType, ValueType, LRUCache<ICallback, PMemStorage<ICallback, ObjectUIDType, LRUCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreType;
@@ -759,7 +759,7 @@ void test_for_threaded()
 #endif //_MSC_VER
         }
         {
-            typedef int KeyType;
+            /*typedef int KeyType;
             typedef int ValueType;
             typedef ObjectFatUID ObjectUIDType;
 
@@ -774,10 +774,10 @@ void test_for_threaded()
             BPlusStoreType ptrTree(nDegree, 100, 1024, 10ULL * 1024 * 1024 * 1024);
             ptrTree.template init<DataNodeType>();
 
-            threaded_test<BPlusStoreType>(&ptrTree, nDegree, 1000000, 12);
+            threaded_test<BPlusStoreType>(&ptrTree, nDegree, 1000000, 12);*/
         }
         {
-            typedef int KeyType;
+            /*typedef int KeyType;
             typedef int ValueType;
             typedef ObjectFatUID ObjectUIDType;
 
@@ -791,10 +791,10 @@ void test_for_threaded()
             BPlusStoreType ptrTree(nDegree, 100, 1024, 10ULL * 1024 * 1024 * 1024, FILE_STORAGE_PATH);
             ptrTree.template init<DataNodeType>();
 
-            threaded_test<BPlusStoreType>(&ptrTree, nDegree, 1000000, 12);
+            threaded_test<BPlusStoreType>(&ptrTree, nDegree, 1000000, 12);*/
         }
         {
-            typedef int KeyType;
+           /* typedef int KeyType;
             typedef int ValueType;
             typedef ObjectFatUID ObjectUIDType;
 
@@ -804,7 +804,7 @@ void test_for_threaded()
             typedef LRUCacheObject<TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
             typedef IFlushCallback<ObjectUIDType, ObjectType> ICallback;
 
-            typedef BPlusStore<ICallback, KeyType, ValueType, LRUCache<ICallback, PMemStorage<ICallback, ObjectUIDType, LRUCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreType;
+            typedef BPlusStore<ICallback, KeyType, ValueType, LRUCache<ICallback, PMemStorage<ICallback, ObjectUIDType, LRUCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreType;*/
 #ifndef _MSC_VER
             BPlusStoreType ptrTree(nDegree, 100, 1024, 10ULL * 1024 * 1024 * 1024, PMEM_STORAGE_PATH);
             ptrTree.template init<DataNodeType>();
@@ -967,9 +967,9 @@ void fptree_bm()
     //typedef IndexNodeROpt<KeyType, ValueType, ObjectUIDType, DataNodeType, TYPE_UID::INDEX_NODE_INT_INT> IndexNodeType;
 
     typedef DataNode<KeyType, ValueType, ObjectUIDType, TYPE_UID::DATA_NODE_INT_INT> DataNodeType;
-    typedef IndexNode<KeyType, ValueType, ObjectUIDType, DataNodeType, TYPE_UID::INDEX_NODE_INT_INT> IndexNodeType;
+    typedef IndexNode<KeyType, ValueType, ObjectUIDType, TypeMarshaller, DataNodeType, TYPE_UID::INDEX_NODE_INT_INT> IndexNodeType;
 
-    typedef LRUCacheObject<TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
+    typedef LRUCacheObject<ObjectUIDType, TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
     typedef IFlushCallback<ObjectUIDType, ObjectType> ICallback;
 
     //typedef BPlusStore<ICallback, KeyType, ValueType, LRUCache<ICallback, FileStorage<ICallback, ObjectUIDType, LRUCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreType;
@@ -1135,9 +1135,9 @@ void cache_team_test()
     //typedef IndexNodeROpt<KeyType, ValueType, ObjectUIDType, DataNodeType, TYPE_UID::INDEX_NODE_INT_INT> IndexNodeType;
 
     typedef DataNode<KeyType, ValueType, ObjectUIDType, TYPE_UID::DATA_NODE_INT_INT> DataNodeType;
-    typedef IndexNode<KeyType, ValueType, ObjectUIDType, DataNodeType, TYPE_UID::INDEX_NODE_INT_INT> IndexNodeType;
+    typedef IndexNode<KeyType, ValueType, ObjectUIDType, TypeMarshaller, DataNodeType, TYPE_UID::INDEX_NODE_INT_INT> IndexNodeType;
 
-    typedef LRUCacheObject<TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
+    typedef LRUCacheObject<ObjectUIDType, TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
     typedef IFlushCallback<ObjectUIDType, ObjectType> ICallback;
 
     //typedef BPlusStore<ICallback, KeyType, ValueType, LRUCache<ICallback, FileStorage<ICallback, ObjectUIDType, LRUCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreType;
@@ -1255,9 +1255,9 @@ int main(int argc, char* argv[])
     //typedef IndexNodeROpt<KeyType, ValueType, ObjectUIDType, DataNodeType, TYPE_UID::INDEX_NODE_INT_INT> IndexNodeType;
     
     typedef DataNode<KeyType, ValueType, ObjectUIDType, TYPE_UID::DATA_NODE_INT_INT> DataNodeType;
-    typedef IndexNode<KeyType, ValueType, ObjectUIDType, DataNodeType, TYPE_UID::INDEX_NODE_INT_INT> IndexNodeType;
+    typedef IndexNode<KeyType, ValueType, ObjectUIDType, TypeMarshaller, DataNodeType, TYPE_UID::INDEX_NODE_INT_INT> IndexNodeType;
 
-    typedef LRUCacheObject<TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
+    typedef LRUCacheObject<ObjectUIDType, TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
     typedef IFlushCallback<ObjectUIDType, ObjectType> ICallback;
 
     //typedef BPlusStore<ICallback, KeyType, ValueType, LRUCache<ICallback, FileStorage<ICallback, ObjectUIDType, LRUCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreType;

@@ -63,10 +63,11 @@ void resetVaraint(std::variant<std::shared_ptr<Types>...>& source) {
 		}, source);
 }
 
-template <typename CoreTypesMarshaller, typename... ValueCoreTypes>
+template <typename ObjectUIDType, typename CoreTypesMarshaller, typename... ValueCoreTypes>
 class LRUCacheObject
 {
 private:
+	typedef LRUCacheObject<ObjectUIDType, CoreTypesMarshaller, ValueCoreTypes...> SelfType;
 	typedef std::variant<std::shared_ptr<ValueCoreTypes>...> ValueCoreTypesWrapper;
 
 public:
@@ -81,14 +82,25 @@ private:
 	//ValueCoreTypesWrapper m_objData;
 	std::shared_mutex m_mtx;
 
+public:
 	ObjectFatUID m_uid;
+	ObjectFatUID m_uidSelf;
+
+	std::shared_ptr<SelfType> m_ptrPrev;
+	std::shared_ptr<SelfType> m_ptrNext;
+
 public:
 	~LRUCacheObject()
 	{
+		//resetVaraint(m_objData);
+
+		deleteCoreObject(); // comment it out later.
+	}
+
+	inline void deleteCoreObject() const
+	{
 		if (m_ptrCoreObject != nullptr)
 			delete m_ptrCoreObject;
-
-		//resetVaraint(m_objData);
 	}
 
 	//template<class ValueCoreType>
