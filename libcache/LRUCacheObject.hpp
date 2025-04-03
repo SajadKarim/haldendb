@@ -83,7 +83,7 @@ private:
 	std::shared_mutex m_mtx;
 
 public:
-	ObjectFatUID m_uid;
+	std::optional<ObjectFatUID> m_uidUpdated;
 	ObjectFatUID m_uidSelf;
 
 	std::shared_ptr<SelfType> m_ptrPrev;

@@ -171,8 +171,9 @@ public:
 		return CacheErrorCode::KeyDoesNotExist;
 	}
 
-	CacheErrorCode getObject(const ObjectUIDType& uidObject, ObjectTypePtr& ptrObject, std::optional<ObjectUIDType>& uidUpdated)
+	CacheErrorCode getObject(const ObjectUIDType& uidObject, ObjectTypePtr& ptrObject)
 	{
+		/*
 #ifdef __CONCURRENT__
 		std::unique_lock<std::shared_mutex> lock_cache(m_mtxCache); // std::unique_lock due to LRU's linked-list update! is there any better way?
 #endif //__CONCURRENT__
@@ -213,43 +214,46 @@ public:
 #ifdef __CONCURRENT__
 		lock_storage.unlock();
 #endif //__CONCURRENT__
+		*/
 
-		ptrObject = m_ptrStorage->getObject(uidTemp);
-		ptrObject->m_uidSelf = uidTemp;
+		ptrObject = m_ptrStorage->getObject(uidObject);
+		ptrObject->m_uidSelf = uidObject;	// set it in the deserialization step.
 
 		if (ptrObject != nullptr)
 		{
+
 			//ObjectTypePtr ptrItem = std::make_shared<ObjectType>(uidTemp, ptrObject);
 
-#ifdef __CONCURRENT__
-			std::unique_lock<std::shared_mutex> re_lock_cache(m_mtxCache);
-
-			if (m_mpObjects.find(uidTemp) != m_mpObjects.end())
-			{
-				std::cout << "Some other thread has also accessed the object." << std::endl;
-				throw new std::logic_error("...");
-/*
-#ifdef __TRACK_CACHE_FOOTPRINT__
-				m_nCacheFootprint -= m_mpObjects[uidTemp]->m_ptrObject->getMemoryFootprint();
-
-				assert(m_nCacheFootprint >= 0);
-
-				m_nCacheFootprint += ptrObject->getMemoryFootprint();
-#endif //__TRACK_CACHE_FOOTPRINT__
-
-				ObjectTypePtr ptrItem = m_mpObjects[uidTemp];
-				moveToFront(ptrItem);
-				return CacheErrorCode::Success;
-*/
-			}
-#endif //__CONCURRENT__
+//#ifdef __CONCURRENT__
+//			std::unique_lock<std::shared_mutex> re_lock_cache(m_mtxCache);
+//
+//			if (m_mpObjects.find(uidTemp) != m_mpObjects.end())
+//			{
+//				std::cout << "Some other thread has also accessed the object." << std::endl;
+//				throw new std::logic_error("...");
+///*
+//#ifdef __TRACK_CACHE_FOOTPRINT__
+//				m_nCacheFootprint -= m_mpObjects[uidTemp]->m_ptrObject->getMemoryFootprint();
+//
+//				assert(m_nCacheFootprint >= 0);
+//
+//				m_nCacheFootprint += ptrObject->getMemoryFootprint();
+//#endif //__TRACK_CACHE_FOOTPRINT__
+//
+//				ObjectTypePtr ptrItem = m_mpObjects[uidTemp];
+//				moveToFront(ptrItem);
+//				return CacheErrorCode::Success;
+//*/
+//			}
+//#endif //__CONCURRENT__
 
 #ifdef __TRACK_CACHE_FOOTPRINT__
 			m_nCacheFootprint += ptrObject->getMemoryFootprint();
 #endif //__TRACK_CACHE_FOOTPRINT__
 
-			m_mpObjects[ptrObject->m_uidSelf] = ptrObject;
+			//m_mpObjects[ptrObject->m_uidSelf] = ptrObject;
 
+			/*
 			if (!m_ptrHead)
 			{
 				m_ptrHead = ptrObject;
@@ -261,6 +265,7 @@ public:
 				m_ptrHead->m_ptrPrev = ptrObject;
 				m_ptrHead = ptrObject;
 			}
+			*/
 
 #ifndef __CONCURRENT__
 			flushItemsToStorage();
@@ -274,32 +279,37 @@ public:
 
 	// This method reorders the recently access objects. 
 	// It is necessary to ensure that the objects are flushed in order otherwise a child object (data node) may preceed its parent (internal node).
-	CacheErrorCode reorder(std::vector<std::pair<ObjectUIDType, ObjectTypePtr>>& vt, bool bEnsure = true)
+	CacheErrorCode reorder(std::vector<ObjectTypePtr>& vt, bool bEnsure = true)
 	{
 		// TODO: Need optimization.
 #ifdef __CONCURRENT__
 		std::unique_lock<std::shared_mutex> lock_cache(m_mtxCache);
 #endif //__CONCURRENT__
 
-		while (vt.size() > 0)
+//		while (vt.size() > 0)
+		for (auto it = vt.rbegin(); it != vt.rend(); ++it)
 		{
-			std::pair<ObjectUIDType, ObjectTypePtr> prNode = vt.back();
+			if (*it == nullptr)
+				continue;
+			//std::pair<ObjectUIDType, ObjectTypePtr> prNode = vt.back();
 
-			if (m_mpObjects.find(prNode.first) != m_mpObjects.end())
+			//if (m_mpObjects.find(prNode.first) != m_mpObjects.end())
 			{
-				ObjectTypePtr ptrItem = m_mpObjects[prNode.first];
-				moveToFront(ptrItem);	//TODO: How about passing whole list together and re-arrange the list?
-			}
-			else
-			{
-				if (bEnsure)
-				{
-					std::cout << "Critical State: One or many entries in the reorder-list is missing in the cache." << std::endl;
-					throw new std::logic_error(".....");   // TODO: critical log.
-				}
-			}
+				//ObjectTypePtr ptrItem = m_mpObjects[prNode.first];
+				//moveToFront(ptrItem);	//TODO: How about passing whole list together and re-arrange the list?
 
-			vt.pop_back();
+				moveToFront(*it);	//TODO: How about passing whole list together and re-arrange the list?
+			}
+			//else
+			//{
+			//	if (bEnsure)
+			//	{
+			//		std::cout << "Critical State: One or many entries in the reorder-list is missing in the cache." << std::endl;
+			//		throw new std::logic_error(".....");   // TODO: critical log.
+			//	}
+			//}
+
+			//vt.pop_back();
 		}
 
 		return CacheErrorCode::Success;
@@ -467,7 +477,7 @@ public:
 		uidObject = uidTemp;
 
 		//ObjectTypePtr ptrItem = std::make_shared<ObjectType>(*uidObject, ptrStorageObject);
-
+		/*
 #ifdef __CONCURRENT__
 		std::unique_lock<std::shared_mutex> lock_cache(m_mtxCache);
 #endif //__CONCURRENT__
@@ -501,7 +511,61 @@ public:
 				m_ptrHead = ptrStorageObject;
 			}
 		}
+		*/
+#ifndef __CONCURRENT__
+		flushItemsToStorage();
+#endif //__CONCURRENT__
 
+		return CacheErrorCode::Success;
+	}
+
+	template<class Type, typename... ArgsType>
+	CacheErrorCode createObjectOfTypeEx(std::optional<ObjectUIDType>& uidObject, std::shared_ptr<ObjectType>& ptrStorageObject, const ArgsType... args)
+	{
+		ptrStorageObject = std::make_shared<ObjectType>(new Type(args...), Type::UID);
+
+		ObjectUIDType uidTemp;
+		ObjectUIDType::createAddressFromVolatilePointer(uidTemp, Type::UID, reinterpret_cast<uintptr_t>(ptrStorageObject.get()));
+
+		ptrStorageObject->m_uidSelf = uidTemp;
+		uidObject = uidTemp;
+
+		//ObjectTypePtr ptrItem = std::make_shared<ObjectType>(*uidObject, ptrStorageObject);
+		/*
+#ifdef __CONCURRENT__
+		std::unique_lock<std::shared_mutex> lock_cache(m_mtxCache);
+#endif //__CONCURRENT__
+
+		if (m_mpObjects.find(*uidObject) != m_mpObjects.end())
+		{
+			std::cout << "Critical State: UID for a newly created object already exist in the cache." << std::endl;
+			throw new std::logic_error(".....");   // TODO: critical log.
+
+			ObjectTypePtr ptrItem = m_mpObjects[*uidObject];
+			ptrItem = ptrStorageObject;
+			moveToFront(ptrItem);
+		}
+		else
+		{
+			m_mpObjects[ptrStorageObject->m_uidSelf] = ptrStorageObject;
+
+#ifdef __TRACK_CACHE_FOOTPRINT__
+			m_nCacheFootprint += ptrStorageObject->getMemoryFootprint();
+#endif //__TRACK_CACHE_FOOTPRINT__
+
+			if (!m_ptrHead)
+			{
+				m_ptrHead = ptrStorageObject;
+				m_ptrTail = ptrStorageObject;
+			}
+			else
+			{
+				ptrStorageObject->m_ptrNext = m_ptrHead;
+				m_ptrHead->m_ptrPrev = ptrStorageObject;
+				m_ptrHead = ptrStorageObject;
+			}
+		}
+		*/
 #ifndef __CONCURRENT__
 		flushItemsToStorage();
 #endif //__CONCURRENT__
@@ -521,7 +585,7 @@ public:
 		uidObject = uidTemp;
 
 		//ObjectTypePtr ptrItem = std::make_shared<ObjectType>(*uidObject, ptrStorageObject);
-
+		/*
 #ifdef __CONCURRENT__
 		std::unique_lock<std::shared_mutex> lock_cache(m_mtxCache);
 #endif //__CONCURRENT__
@@ -554,7 +618,7 @@ public:
 				m_ptrHead = ptrStorageObject;
 			}
 		}
-
+		*/
 #ifndef __CONCURRENT__
 		flushItemsToStorage();
 #endif //__CONCURRENT__
@@ -700,22 +764,29 @@ private:
 
 	inline void moveToFront(ObjectTypePtr ptrItem)
 	{
+		if (!m_ptrHead)
+		{
+			m_ptrHead = ptrItem;
+			m_ptrTail = ptrItem;
+			return;
+		}
+
 		if (ptrItem == m_ptrHead)
 		{
 			return;
 		}
 
-		if (ptrItem->m_ptrPrev) 
+		if (ptrItem->m_ptrPrev)
 		{
 			ptrItem->m_ptrPrev->m_ptrNext = ptrItem->m_ptrNext;
 		}
 
-		if (ptrItem->m_ptrNext) 
+		if (ptrItem->m_ptrNext)
 		{
 			ptrItem->m_ptrNext->m_ptrPrev = ptrItem->m_ptrPrev;
 		}
 
-		if (ptrItem == m_ptrTail) 
+		if (ptrItem == m_ptrTail)
 		{
 			m_ptrTail = ptrItem->m_ptrPrev;
 		}
@@ -723,11 +794,17 @@ private:
 		ptrItem->m_ptrPrev = nullptr;
 		ptrItem->m_ptrNext = m_ptrHead;
 
-		if (m_ptrHead) 
-		{
-			m_ptrHead->m_ptrPrev = ptrItem;
-		}
+		//if (m_ptrHead) 
+		//{
+		m_ptrHead->m_ptrPrev = ptrItem;
+		//}
 		m_ptrHead = ptrItem;
+
+		//if (!m_ptrTail)
+		//{
+		//	//m_ptrHead = ptrItem;
+		//	m_ptrTail = ptrItem;
+		//}
 	}
 
 	inline void moveToFront(const std::vector<ObjectTypePtr>& itemList)
@@ -966,14 +1043,13 @@ private:
 				break;
 			}
 
-			if (m_mpUIDUpdates.size() > 0)
-			{
-				m_ptrCallback->applyExistingUpdates(m_ptrTail, m_mpUIDUpdates);
-			}
+			//if (m_mpUIDUpdates.size() > 0)
+			//{
+			//	m_ptrCallback->applyExistingUpdates(m_ptrTail, m_mpUIDUpdates);
+			//}
 
 			if (m_ptrTail->getDirtyFlag())
 			{
-
 				ObjectUIDType uidUpdated;
 				if (m_ptrStorage->addObject(m_ptrTail->m_uidSelf, m_ptrTail, uidUpdated) != CacheErrorCode::Success)
 				{
@@ -987,10 +1063,11 @@ private:
 					throw new std::logic_error(".....");   // TODO: critical log.
 				}
 
-				m_mpUIDUpdates[m_ptrTail->m_uidSelf] = std::make_pair(uidUpdated, m_ptrTail);
+				m_ptrTail->m_uidUpdated = uidUpdated;
+				//m_mpUIDUpdates[m_ptrTail->m_uidSelf] = std::make_pair(uidUpdated, m_ptrTail);
 			}
 
-			m_mpObjects.erase(m_ptrTail->m_uidSelf);
+			//m_mpObjects.erase(m_ptrTail->m_uidSelf);
 
 			ObjectTypePtr ptrTemp = m_ptrTail;
 
@@ -1005,7 +1082,8 @@ private:
 				m_ptrHead = nullptr;
 			}
 
-			ptrTemp.reset();
+			ptrTemp->deleteCoreObject();
+			//ptrTemp.reset();
 		}
 #endif //__CONCURRENT__
 	}

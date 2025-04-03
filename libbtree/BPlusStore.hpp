@@ -43,7 +43,9 @@ class BPlusStore
 private:
     uint32_t m_nDegree;
     std::shared_ptr<CacheType> m_ptrCache;
+
     std::optional<ObjectUIDType> m_uidRootNode;
+    ObjectTypePtr m_ptrRootNode;
 
 #ifdef __CONCURRENT__
     mutable std::shared_mutex m_mutex;
@@ -57,6 +59,7 @@ public:
     template<typename... CacheArgs>
     BPlusStore(uint32_t nDegree, CacheArgs... args)
         : m_nDegree(nDegree)
+        , m_ptrRootNode(nullptr)
         , m_uidRootNode(std::nullopt)
     {
         m_ptrCache = std::make_shared<CacheType>(args...);
@@ -69,7 +72,8 @@ public:
         m_ptrCache->init(this);
 #endif //__TREE_WITH_CACHE__
 
-        m_ptrCache->template createObjectOfType<DefaultNodeType>(m_uidRootNode);
+        //m_ptrCache->template createObjectOfType<DefaultNodeType>(m_uidRootNode);
+        m_ptrCache->template createObjectOfTypeEx<DefaultNodeType>(m_uidRootNode, m_ptrRootNode);
     }
 
     ErrorCode insert(const KeyType& key, const ValueType& value, bool print = false)
@@ -81,7 +85,7 @@ public:
 #endif //__TRACK_CACHE_FOOTPRINT__
 
 #ifdef __TREE_WITH_CACHE__
-        std::vector<std::pair<ObjectUIDType, ObjectTypePtr>> vtAccessedNodes;
+        std::vector<ObjectTypePtr> vtAccessedNodes;
 #endif //__TREE_WITH_CACHE__
 
         ObjectUIDType uidLastNode, uidCurrentNode;  // TODO: make Optional!
@@ -98,27 +102,35 @@ public:
         vtLocks.emplace_back(std::unique_lock<std::shared_mutex>(m_mutex));
 #endif //__CONCURRENT__
 
+        //if (m_ptrRootNode == nullptr)
+        //{
+        //    std::optional<ObjectUIDType> uidUpdated = std::nullopt;
+        //    m_ptrCache->getObject(*m_uidRootNode, m_ptrRootNode, uidUpdated);
+        //}
+
         uidCurrentNode = m_uidRootNode.value();
+        ptrCurrentNode = m_ptrRootNode;
+
         do
         {   
 #ifdef __TREE_WITH_CACHE__
             std::optional<ObjectUIDType> uidUpdated = std::nullopt;
-            m_ptrCache->getObject(uidCurrentNode, ptrCurrentNode, uidUpdated);
+            //m_ptrCache->getObject(uidCurrentNode, ptrCurrentNode, uidUpdated);
 #else //__TREE_WITH_CACHE__
-            m_ptrCache->getObject(uidCurrentNode, ptrCurrentNode);
+            //m_ptrCache->getObject(uidCurrentNode, ptrCurrentNode);
 #endif //__TREE_WITH_CACHE__
 
-            if (ptrCurrentNode == nullptr)
-            {
-                std::cout << "Critical State: While doing insert the cache returned NULL object." << std::endl;
-                throw new std::logic_error(".....");   // TODO: critical log.
-            }
+            //if (ptrCurrentNode == nullptr)
+            //{
+            //    std::cout << "Critical State: While doing insert the cache returned NULL object." << std::endl;
+            //    throw new std::logic_error(".....");   // TODO: critical log.
+            //}
 #ifdef __CONCURRENT__
             vtLocks.emplace_back(std::unique_lock<std::shared_mutex>(ptrCurrentNode->getMutex()));
 #endif //__CONCURRENT__
 
 #ifdef __TREE_WITH_CACHE__
-            if (uidUpdated != std::nullopt)
+/*            if (uidUpdated != std::nullopt)
             {
                 if (ptrLastNode != nullptr)
                 {
@@ -141,8 +153,11 @@ public:
 
                 uidCurrentNode = *uidUpdated;
             }
+*/
+            vtAccessedNodes.push_back(ptrCurrentNode);
+            vtAccessedNodes.push_back(nullptr);
 
-            vtAccessedNodes.push_back(std::make_pair(uidCurrentNode, ptrCurrentNode));
+            // can be optimized by just adding an empty slot for possible split...!!
 #endif //__TREE_WITH_CACHE__
             if (ptrCurrentNode->getObjectType() == IndexNodeType::UID)
             //if (std::holds_alternative<std::shared_ptr<IndexNodeType>>(ptrCurrentNode->getInnerData()))
@@ -163,7 +178,18 @@ public:
                 uidLastNode = uidCurrentNode;
                 ptrLastNode = ptrCurrentNode;
 
-                uidCurrentNode = ptrIndexNode->getChild(key);
+                if (ptrIndexNode->getChild<CacheType>(m_ptrCache, key, uidCurrentNode, ptrCurrentNode))
+                {
+                    ptrLastNode->setDirtyFlag(true); /// if id is upgated
+
+// fix the following code form the prevous logic!!
+//#ifdef __TRACK_CACHE_FOOTPRINT__
+//                    nMemoryFootprint += ptrIndexNode->template updateChildUID<ObjectType>(ptrCurrentNode, uidCurrentNode, *uidUpdated);
+//#else //__TRACK_CACHE_FOOTPRINT__
+//                    ptrIndexNode->template updateChildUID<ObjectType>(ptrCurrentNode, uidCurrentNode, *uidUpdated);
+//#endif //__TRACK_CACHE_FOOTPRINT__
+
+                }
             }
             else //if (std::holds_alternative<std::shared_ptr<DataNodeType>>(ptrCurrentNode->getInnerData()))
             {
@@ -210,24 +236,25 @@ public:
                     uidLHSChildNode = uidCurrentNode;
                     ptrLHSChildNode = ptrCurrentNode;
 
-#ifdef __TREE_WITH_CACHE__
-                    bool bTest = false;
-                    for (auto itCurrent = vtAccessedNodes.cbegin(), itEnd = vtAccessedNodes.cend(); itCurrent != itEnd; itCurrent++)
-                    {
-                        if ((*itCurrent).first == uidCurrentNode)
-                        {
-                            bTest = true;
-                            vtAccessedNodes.insert(itCurrent + 1, std::make_pair(*uidRHSChildNode, ptrRHSChildNode));
-                            break;
-                        }
-                    }
-
-                    if (!bTest)
-                    {
-                        std::cout << "Critical State: Failed to push the new DataNode (i.e. created due to the split operation) to the list to ensure Nodes' order in the Cache." << std::endl;
-                        throw new std::logic_error(".....");   // TODO: critical log.
-                    }
-#endif //__TREE_WITH_CACHE__
+//#ifdef __TREE_WITH_CACHE__
+//                    //vtAccessedNodes.push_back(ptrRHSChildNode);
+//                    bool bTest = false;
+//                    for (auto itCurrent = vtAccessedNodes.cbegin(), itEnd = vtAccessedNodes.cend(); itCurrent != itEnd; itCurrent++)
+//                    {
+//                        if ((*itCurrent)->m_uidSelf == uidCurrentNode)
+//                        {
+//                            bTest = true;
+//                            vtAccessedNodes.insert(itCurrent + 1, ptrRHSChildNode);
+//                            break;
+//                        }
+//                    }
+//
+//                    if (!bTest)
+//                    {
+//                        std::cout << "Critical State: Failed to push the new DataNode (i.e. created due to the split operation) to the list to ensure Nodes' order in the Cache." << std::endl;
+//                        throw new std::logic_error(".....");   // TODO: critical log.
+//                    }
+//#endif //__TREE_WITH_CACHE__
                 }
                 else
                 {
@@ -252,7 +279,7 @@ public:
 #ifdef __TRACK_CACHE_FOOTPRINT__
             if (ptrIndexNode->insert(pivotKey, *uidRHSChildNode, nMemoryFootprint) != ErrorCode::Success)
 #else //__TRACK_CACHE_FOOTPRINT__
-            if (ptrIndexNode->insert(pivotKey, *uidRHSChildNode) != ErrorCode::Success)
+            if (ptrIndexNode->insert(pivotKey, *uidRHSChildNode, ptrRHSChildNode) != ErrorCode::Success)
 #endif //__TRACK_CACHE_FOOTPRINT__
             {
                 // TODO: Should update be performed on cloned objects first?
@@ -284,15 +311,26 @@ public:
 
 #ifdef __TREE_WITH_CACHE__
                 bool test = false;
-                for (auto itCurrent = vtAccessedNodes.cbegin(), itEnd = vtAccessedNodes.cend(); itCurrent != itEnd; itCurrent++)
+                for (auto it = vtAccessedNodes.rbegin(); it != vtAccessedNodes.rend(); ++it)
                 {
-                    if ((*itCurrent).first == uidCurrentNode)
+                    if (*it == nullptr)
                     {
                         test = true;
-                        vtAccessedNodes.insert(itCurrent + 1, std::make_pair(*uidRHSChildNode, ptrRHSChildNode));
+                        *it = ptrRHSChildNode;
                         break;
                     }
                 }
+
+                //bool test = false;
+                //for (auto itCurrent = vtAccessedNodes.cbegin(), itEnd = vtAccessedNodes.cend(); itCurrent != itEnd; itCurrent++)
+                //{
+                //    if ((*itCurrent)->m_uidSelf == uidCurrentNode)
+                //    {
+                //        test = true;
+                //        vtAccessedNodes.insert(itCurrent + 1, ptrRHSChildNode);
+                //        break;
+                //    }
+                //}
 
                 if (!test)
                 {
@@ -315,23 +353,33 @@ public:
         if (uidCurrentNode == m_uidRootNode && ptrLHSChildNode != nullptr && ptrRHSChildNode != nullptr)
         {
             m_uidRootNode = std::nullopt;
-            m_ptrCache->template createObjectOfType<IndexNodeType>(m_uidRootNode, pivotKey, *uidLHSChildNode, *uidRHSChildNode);
+            m_ptrCache->template createObjectOfTypeEx<IndexNodeType>(m_uidRootNode, m_ptrRootNode, pivotKey, *uidLHSChildNode, ptrLHSChildNode, *uidRHSChildNode, ptrRHSChildNode);
 
 #ifdef __TREE_WITH_CACHE__
             ptrCurrentNode->setDirtyFlag(true);
 
-            bool bTest = false;
-            for (auto itCurrent = vtAccessedNodes.cbegin(), itEnd = vtAccessedNodes.cend(); itCurrent != itEnd; itCurrent++)
+            bool test = false;
+            for (auto it = vtAccessedNodes.rbegin(); it != vtAccessedNodes.rend(); ++it)
             {
-                if ((*itCurrent).first == uidCurrentNode)
+                if (*it == nullptr)
                 {
-                    bTest = true;
-                    vtAccessedNodes.insert(itCurrent + 1, std::make_pair(*uidRHSChildNode, ptrRHSChildNode));
-                    break;
+                    test = true;
+                    *it = ptrRHSChildNode;
+                        break;
                 }
             }
+            //bool bTest = false;
+            //for (auto itCurrent = vtAccessedNodes.cbegin(), itEnd = vtAccessedNodes.cend(); itCurrent != itEnd; itCurrent++)
+            //{
+            //    if ((*itCurrent)->m_uidSelf == uidCurrentNode)
+            //    {
+            //        bTest = true;
+            //        vtAccessedNodes.insert(itCurrent + 1, ptrRHSChildNode);
+            //        break;
+            //    }
+            //}
 
-            if (!bTest)
+            if (!test)
             {
                 std::cout << "Critical State: Failed to push the new RootNode (i.e. created due to the split operation) to the list to ensure Nodes' order in the Cache." << std::endl;
                 throw new std::logic_error(".....");   // TODO: critical log.
@@ -360,112 +408,112 @@ public:
     ErrorCode search(const KeyType& key, ValueType& value)
     {
         ErrorCode ecResult = ErrorCode::Error;
-
-#ifdef __TRACK_CACHE_FOOTPRINT__
-        int32_t nMemoryFootprint = 0;
-#endif //__TRACK_CACHE_FOOTPRINT__
-
-#ifdef __TREE_WITH_CACHE__
-        std::vector<std::pair<ObjectUIDType, ObjectTypePtr>> vtAccessedNodes;
-#endif //__TREE_WITH_CACHE__
-
-#ifdef __CONCURRENT__
-        std::vector<std::unique_lock<std::shared_mutex>> vtLocks;
-        vtLocks.emplace_back(std::unique_lock<std::shared_mutex>(m_mutex));
-#endif //__CONCURRENT__
-
-        ObjectTypePtr ptrCurrentNode = nullptr;
-        ObjectUIDType uidCurrentNode = *m_uidRootNode;
-
-        do
-        {
-#ifdef __TREE_WITH_CACHE__
-            std::optional<ObjectUIDType> uidUpdated = std::nullopt;
-            m_ptrCache->getObject(uidCurrentNode, ptrCurrentNode, uidUpdated);
-#else //__TREE_WITH_CACHE__
-            m_ptrCache->getObject(uidCurrentNode, ptrCurrentNode);
-#endif //__TREE_WITH_CACHE__
-
-            if (ptrCurrentNode == nullptr)
-            {
-                std::cout << "Critical State: While doing search the cache returned NULL object." << std::endl;
-                throw new std::logic_error(".....");   // TODO: critical log.
-            }
-
-#ifdef __CONCURRENT__
-            vtLocks.emplace_back(std::unique_lock<std::shared_mutex>(ptrCurrentNode->getMutex()));
-#endif //__CONCURRENT__
-
-#ifdef __TREE_WITH_CACHE__
-            if (uidUpdated != std::nullopt)
-            {
-                ObjectTypePtr ptrLastNode = vtAccessedNodes.size() > 0 ? vtAccessedNodes[vtAccessedNodes.size() - 1].second : nullptr;
-                if (ptrLastNode != nullptr)
-                {
-                    IndexNodeType* ptrIndexNode = reinterpret_cast<IndexNodeType*>(ptrLastNode->getInnerData());
-                    //std::shared_ptr<IndexNodeType> ptrIndexNode = std::get<std::shared_ptr<IndexNodeType>>(ptrLastNode->getInnerData());
- 
-#ifdef __TRACK_CACHE_FOOTPRINT__
-                    nMemoryFootprint += ptrIndexNode->template updateChildUID<ObjectType>(ptrCurrentNode, uidCurrentNode, *uidUpdated);
-#else //__TRACK_CACHE_FOOTPRINT__
-                    ptrIndexNode->template updateChildUID<ObjectType>(ptrCurrentNode, uidCurrentNode, *uidUpdated);
-#endif //__TRACK_CACHE_FOOTPRINT__
-
-                    ptrLastNode->setDirtyFlag(true);
-                }
-                else
-                {
-                    assert(uidCurrentNode == *m_uidRootNode);
-                    m_uidRootNode = uidUpdated;
-                }
-
-                uidCurrentNode = *uidUpdated;
-            }
-#endif //__TREE_WITH_CACHE__
-
-#ifdef __CONCURRENT__
-            vtLocks.erase(vtLocks.begin(), vtLocks.end() - 2); 
-#endif //__CONCURRENT__
-
-#ifdef __TREE_WITH_CACHE__
-            vtAccessedNodes.push_back(std::make_pair(uidCurrentNode, ptrCurrentNode));
-#endif //__TREE_WITH_CACHE__
-
-            if(ptrCurrentNode->getObjectType() == IndexNodeType::UID)
-            //if (std::holds_alternative<std::shared_ptr<IndexNodeType>>(ptrCurrentNode->getInnerData()))
-            {
-                IndexNodeType* ptrIndexNode = reinterpret_cast<IndexNodeType*>(ptrCurrentNode->getInnerData());
-                //std::shared_ptr<IndexNodeType> ptrIndexNode = std::get<std::shared_ptr<IndexNodeType>>(ptrCurrentNode->getInnerData());
-
-                uidCurrentNode = ptrIndexNode->getChild(key);
-            }
-            else //if (std::holds_alternative<std::shared_ptr<DataNodeType>>(ptrCurrentNode->getInnerData()))
-            {
-                DataNodeType* ptrDataNode = reinterpret_cast<DataNodeType*>(ptrCurrentNode->getInnerData());
-                //std::shared_ptr<DataNodeType> ptrDataNode = std::get<std::shared_ptr<DataNodeType>>(ptrCurrentNode->getInnerData());
-
-                ecResult = ptrDataNode->getValue(key, value);
-
-                break;
-            }
-
-        } while (true);
-
-#ifdef __TREE_WITH_CACHE__
-        m_ptrCache->reorder(vtAccessedNodes);
-        vtAccessedNodes.clear();
-#endif //__TREE_WITH_CACHE__
-
-#ifdef __CONCURRENT__
-        vtLocks.clear();
-#endif //__CONCURRENT__
-
-#ifdef __TRACK_CACHE_FOOTPRINT__
-        if (nMemoryFootprint != 0)
-        {
-            m_ptrCache->updateMemoryFootprint(nMemoryFootprint);
-        }
-#endif //__TRACK_CACHE_FOOTPRINT__
+//
+//#ifdef __TRACK_CACHE_FOOTPRINT__
+//        int32_t nMemoryFootprint = 0;
+//#endif //__TRACK_CACHE_FOOTPRINT__
+//
+//#ifdef __TREE_WITH_CACHE__
+//        std::vector<std::pair<ObjectUIDType, ObjectTypePtr>> vtAccessedNodes;
+//#endif //__TREE_WITH_CACHE__
+//
+//#ifdef __CONCURRENT__
+//        std::vector<std::unique_lock<std::shared_mutex>> vtLocks;
+//        vtLocks.emplace_back(std::unique_lock<std::shared_mutex>(m_mutex));
+//#endif //__CONCURRENT__
+//
+//        ObjectTypePtr ptrCurrentNode = nullptr;
+//        ObjectUIDType uidCurrentNode = *m_uidRootNode;
+//
+//        do
+//        {
+//#ifdef __TREE_WITH_CACHE__
+//            std::optional<ObjectUIDType> uidUpdated = std::nullopt;
+//            m_ptrCache->getObject(uidCurrentNode, ptrCurrentNode);
+//#else //__TREE_WITH_CACHE__
+//            m_ptrCache->getObject(uidCurrentNode, ptrCurrentNode);
+//#endif //__TREE_WITH_CACHE__
+//
+//            if (ptrCurrentNode == nullptr)
+//            {
+//                std::cout << "Critical State: While doing search the cache returned NULL object." << std::endl;
+//                throw new std::logic_error(".....");   // TODO: critical log.
+//            }
+//
+//#ifdef __CONCURRENT__
+//            vtLocks.emplace_back(std::unique_lock<std::shared_mutex>(ptrCurrentNode->getMutex()));
+//#endif //__CONCURRENT__
+//
+//#ifdef __TREE_WITH_CACHE__
+//            if (uidUpdated != std::nullopt)
+//            {
+//                ObjectTypePtr ptrLastNode = vtAccessedNodes.size() > 0 ? vtAccessedNodes[vtAccessedNodes.size() - 1].second : nullptr;
+//                if (ptrLastNode != nullptr)
+//                {
+//                    IndexNodeType* ptrIndexNode = reinterpret_cast<IndexNodeType*>(ptrLastNode->getInnerData());
+//                    //std::shared_ptr<IndexNodeType> ptrIndexNode = std::get<std::shared_ptr<IndexNodeType>>(ptrLastNode->getInnerData());
+// 
+//#ifdef __TRACK_CACHE_FOOTPRINT__
+//                    nMemoryFootprint += ptrIndexNode->template updateChildUID<ObjectType>(ptrCurrentNode, uidCurrentNode, *uidUpdated);
+//#else //__TRACK_CACHE_FOOTPRINT__
+//                    ptrIndexNode->template updateChildUID<ObjectType>(ptrCurrentNode, uidCurrentNode, *uidUpdated);
+//#endif //__TRACK_CACHE_FOOTPRINT__
+//
+//                    ptrLastNode->setDirtyFlag(true);
+//                }
+//                else
+//                {
+//                    assert(uidCurrentNode == *m_uidRootNode);
+//                    m_uidRootNode = uidUpdated;
+//                }
+//
+//                uidCurrentNode = *uidUpdated;
+//            }
+//#endif //__TREE_WITH_CACHE__
+//
+//#ifdef __CONCURRENT__
+//            vtLocks.erase(vtLocks.begin(), vtLocks.end() - 2); 
+//#endif //__CONCURRENT__
+//
+//#ifdef __TREE_WITH_CACHE__
+//            vtAccessedNodes.push_back(std::make_pair(uidCurrentNode, ptrCurrentNode));
+//#endif //__TREE_WITH_CACHE__
+//
+//            if(ptrCurrentNode->getObjectType() == IndexNodeType::UID)
+//            //if (std::holds_alternative<std::shared_ptr<IndexNodeType>>(ptrCurrentNode->getInnerData()))
+//            {
+//                IndexNodeType* ptrIndexNode = reinterpret_cast<IndexNodeType*>(ptrCurrentNode->getInnerData());
+//                //std::shared_ptr<IndexNodeType> ptrIndexNode = std::get<std::shared_ptr<IndexNodeType>>(ptrCurrentNode->getInnerData());
+//
+//                uidCurrentNode = ptrIndexNode->getChild(key);
+//            }
+//            else //if (std::holds_alternative<std::shared_ptr<DataNodeType>>(ptrCurrentNode->getInnerData()))
+//            {
+//                DataNodeType* ptrDataNode = reinterpret_cast<DataNodeType*>(ptrCurrentNode->getInnerData());
+//                //std::shared_ptr<DataNodeType> ptrDataNode = std::get<std::shared_ptr<DataNodeType>>(ptrCurrentNode->getInnerData());
+//
+//                ecResult = ptrDataNode->getValue(key, value);
+//
+//                break;
+//            }
+//
+//        } while (true);
+//
+//#ifdef __TREE_WITH_CACHE__
+//        m_ptrCache->reorder(vtAccessedNodes);
+//        vtAccessedNodes.clear();
+//#endif //__TREE_WITH_CACHE__
+//
+//#ifdef __CONCURRENT__
+//        vtLocks.clear();
+//#endif //__CONCURRENT__
+//
+//#ifdef __TRACK_CACHE_FOOTPRINT__
+//        if (nMemoryFootprint != 0)
+//        {
+//            m_ptrCache->updateMemoryFootprint(nMemoryFootprint);
+//        }
+//#endif //__TRACK_CACHE_FOOTPRINT__
 
         return ecResult;
     }
@@ -473,316 +521,316 @@ public:
     ErrorCode remove(const KeyType& key)
     {
         ErrorCode ecResult = ErrorCode::Success;
-
-#ifdef __TRACK_CACHE_FOOTPRINT__
-        int32_t nMemoryFootprint = 0;
-#endif //__TRACK_CACHE_FOOTPRINT__
-
-        ObjectUIDType uidLastNode, uidCurrentNode;
-        ObjectTypePtr ptrLastNode = nullptr, ptrCurrentNode = nullptr;
-
-        std::vector<std::pair<ObjectUIDType, ObjectTypePtr>> vtNodes;
-
-#ifdef __TREE_WITH_CACHE__
-        std::vector<std::pair<ObjectUIDType, ObjectTypePtr>> vtAccessedNodes;
-#endif //__TREE_WITH_CACHE__
-
-#ifdef __CONCURRENT__
-        std::vector<std::unique_lock<std::shared_mutex>> vtLocks;
-        vtLocks.emplace_back(std::unique_lock<std::shared_mutex>(m_mutex));
-#endif //__CONCURRENT__
-
-        uidCurrentNode = m_uidRootNode.value();
-
-        do
-        {
-#ifdef __TREE_WITH_CACHE__
-            std::optional<ObjectUIDType> uidUpdated = std::nullopt;
-            m_ptrCache->getObject(uidCurrentNode, ptrCurrentNode, uidUpdated);
-#else //__TREE_WITH_CACHE__
-            m_ptrCache->getObject(uidCurrentNode, ptrCurrentNode);
-#endif //__TREE_WITH_CACHE__
-
-            if (ptrCurrentNode == nullptr)
-            {
-                std::cout << "Critical State: While doing remove the cache returned NULL object." << std::endl;
-                throw new std::logic_error(".....");   // TODO: critical log.
-            }
-
-#ifdef __CONCURRENT__
-            vtLocks.emplace_back(std::unique_lock<std::shared_mutex>(ptrCurrentNode->getMutex()));
-#endif //__CONCURRENT__
-
-#ifdef __TREE_WITH_CACHE__
-            if (uidUpdated != std::nullopt)
-            {
-                if (ptrLastNode != nullptr)
-                {
-                    IndexNodeType* ptrIndexNode = reinterpret_cast<IndexNodeType*>(ptrLastNode->getInnerData());
-                    //std::shared_ptr<IndexNodeType> ptrIndexNode = std::get<std::shared_ptr<IndexNodeType>>(ptrLastNode->getInnerData());
-
-#ifdef __TRACK_CACHE_FOOTPRINT__
-                    nMemoryFootprint += ptrIndexNode->template updateChildUID<ObjectType>(ptrCurrentNode, uidCurrentNode, *uidUpdated);
-#else //__TRACK_CACHE_FOOTPRINT__
-                    ptrIndexNode->template updateChildUID<ObjectType>(ptrCurrentNode, uidCurrentNode, *uidUpdated);
-#endif //__TRACK_CACHE_FOOTPRINT__
-
-                    ptrLastNode->setDirtyFlag(true);
-                }
-                else
-                {
-                    assert(uidCurrentNode == *m_uidRootNode);
-                    m_uidRootNode = uidUpdated;
-                }
-
-                uidCurrentNode = *uidUpdated;
-            }
-#endif //__TREE_WITH_CACHE__
-
-            vtNodes.push_back(std::pair<ObjectUIDType, ObjectTypePtr>(uidCurrentNode, ptrCurrentNode));
-
-#ifdef __TREE_WITH_CACHE__
-            vtAccessedNodes.push_back(std::make_pair(uidCurrentNode, ptrCurrentNode));
-#endif //__TREE_WITH_CACHE__
-
-            if (ptrCurrentNode->getObjectType() == IndexNodeType::UID)
-            //if (std::holds_alternative<std::shared_ptr<IndexNodeType>>(ptrCurrentNode->getInnerData()))
-            {
-                IndexNodeType* ptrIndexNode = reinterpret_cast<IndexNodeType*>(ptrCurrentNode->getInnerData());
-                //std::shared_ptr<IndexNodeType> ptrIndexNode = std::get<std::shared_ptr<IndexNodeType>>(ptrCurrentNode->getInnerData());
-
-                if (!ptrIndexNode->canTriggerMerge(m_nDegree))
-                {
-#ifdef __CONCURRENT__
-                    // Although lock to the last node is enough. 
-                    // However, the preceeding one is maintainig for the root node so that "m_uidRootNode" can be updated safely if the root node is needed to be deleted.
-                    vtLocks.erase(vtLocks.begin(), vtLocks.end() - 2);
-#endif //__CONCURRENT__
-                    vtNodes.erase(vtNodes.begin(), vtNodes.end() - 1);
-                }
-
-                uidLastNode = uidCurrentNode;
-                ptrLastNode = ptrCurrentNode;
-
-                uidCurrentNode = ptrIndexNode->getChild(key);
-            }
-            else // if (std::holds_alternative<std::shared_ptr<DataNodeType>>(ptrCurrentNode->getInnerData()))
-            {
-                DataNodeType* ptrDataNode = reinterpret_cast<DataNodeType*>(ptrCurrentNode->getInnerData());
-                //std::shared_ptr<DataNodeType> ptrDataNode = std::get<std::shared_ptr<DataNodeType>>(ptrCurrentNode->getInnerData());
-
-#ifdef __TRACK_CACHE_FOOTPRINT__
-                if (ptrDataNode->remove(key, nMemoryFootprint) == ErrorCode::KeyDoesNotExist)
-#else //__TRACK_CACHE_FOOTPRINT__
-                if (ptrDataNode->remove(key) == ErrorCode::KeyDoesNotExist)
-#endif //__TRACK_CACHE_FOOTPRINT__
-                {
-                    ecResult = ErrorCode::KeyDoesNotExist;
-
-#ifdef __CONCURRENT__
-                    vtLocks.clear();
-#endif //__CONCURRENT__
-                    vtNodes.clear();
-
-                    break;
-                }
-
-#ifdef __TREE_WITH_CACHE__
-                ptrCurrentNode->setDirtyFlag( true);
-#endif //__TREE_WITH_CACHE__
-
-                if (ptrDataNode->requireMerge(m_nDegree))
-                {
-                    if (ptrLastNode != nullptr) 
-                    {
-                        std::optional<ObjectUIDType> uidToDelete = std::nullopt;
-
-                        IndexNodeType* ptrParentNode = reinterpret_cast<IndexNodeType*>(ptrLastNode->getInnerData());
-                        //std::shared_ptr<IndexNodeType> ptrParentNode = std::get<std::shared_ptr<IndexNodeType>>(ptrLastNode->getInnerData());
-#ifdef __TREE_WITH_CACHE__
-                        std::optional<ObjectUIDType> uidAffectedNode = std::nullopt;
-                        ObjectTypePtr ptrAffectedNode = nullptr;
-
-#ifdef __TRACK_CACHE_FOOTPRINT__
-                        ptrParentNode->template rebalanceDataNode<CacheType>(m_ptrCache, uidCurrentNode, ptrDataNode, key, m_nDegree, uidToDelete, uidAffectedNode, ptrAffectedNode, nMemoryFootprint);
-#else //__TRACK_CACHE_FOOTPRINT__
-                        ptrParentNode->template rebalanceDataNode<CacheType>(m_ptrCache, uidCurrentNode, ptrDataNode, key, m_nDegree, uidToDelete, uidAffectedNode, ptrAffectedNode);
-#endif //__TRACK_CACHE_FOOTPRINT__
-
-#else //__TREE_WITH_CACHE__
-                        ptrParentNode->template rebalanceDataNode<CacheType>(m_ptrCache, uidCurrentNode, ptrDataNode, key, m_nDegree, uidToDelete);
-#endif //__TREE_WITH_CACHE__
-
-#ifdef __TREE_WITH_CACHE__
-                        ptrLastNode->setDirtyFlag(true);
-                        ptrCurrentNode->setDirtyFlag(true);
-
-                        bool bTest = false;
-                        for (auto itCurrent = vtAccessedNodes.cbegin(), itEnd = vtAccessedNodes.cend(); itCurrent != itEnd; itCurrent++)
-                        {
-                            if ((*itCurrent).first == uidLastNode)
-                            {
-                                bTest = true;
-                                vtAccessedNodes.insert(itCurrent + 1, std::make_pair(*uidAffectedNode, nullptr));
-                                break;
-                            }
-                        }
-
-                        if (!bTest)
-                        {
-                            std::cout << "Critical State: Failed to push the new DataNode (i.e. created due to the merge operation) to the list to ensure Nodes' order in the Cache." << std::endl;
-                            throw new std::logic_error(".....");   // TODO: critical log.
-                        }
-#endif //__TREE_WITH_CACHE__
-
-
-#ifdef __CONCURRENT__
-                        vtLocks.pop_back();
-#endif //__CONCURRENT__
-                        vtNodes.pop_back();
-
-                        if (uidToDelete)
-                        {
-                            m_ptrCache->remove(*uidToDelete);
-                        }
-                    }
-                }
-                else
-                {
-#ifdef __CONCURRENT__
-                    vtLocks.clear();
-#endif //__CONCURRENT__
-                    vtNodes.clear();
-                }
-
-                break;
-            }
-        } while (true);
-
-        ObjectUIDType uidChildNode;
-        ObjectTypePtr ptrChildNode = nullptr;
-
-        if (vtNodes.size() > 0)
-        {
-            uidChildNode = vtNodes.back().first;
-            ptrChildNode = vtNodes.back().second;
-
-            vtNodes.pop_back();
-
-            while (vtNodes.size() > 0)
-            {
-                ptrCurrentNode = vtNodes.back().second;
-
-                bool bReleaseLock = true;
-                std::optional<ObjectUIDType> uidToDelete = std::nullopt;
-
-                IndexNodeType* ptrParentIndexNode = reinterpret_cast<IndexNodeType*>(ptrCurrentNode->getInnerData());
-                //std::shared_ptr<IndexNodeType> ptrParentIndexNode = std::get<std::shared_ptr<IndexNodeType>>(ptrCurrentNode->getInnerData());
-
-                IndexNodeType* ptrChildIndexNode = reinterpret_cast<IndexNodeType*>(ptrChildNode->getInnerData());
-                //std::shared_ptr<IndexNodeType> ptrChildIndexNode = std::get<std::shared_ptr<IndexNodeType>>(ptrChildNode->getInnerData());
-
-                if (ptrChildIndexNode->requireMerge(m_nDegree))
-                {
-#ifdef __TREE_WITH_CACHE__
-                    std::optional<ObjectUIDType> uidAffectedNode = std::nullopt;
-                    ObjectTypePtr ptrAffectedNode = nullptr;
-
-#ifdef __TRACK_CACHE_FOOTPRINT__
-                    ptrParentIndexNode->template rebalanceIndexNode<CacheType>(m_ptrCache, uidChildNode, ptrChildIndexNode, key, m_nDegree, uidToDelete, uidAffectedNode, ptrAffectedNode, nMemoryFootprint);
-#else //__TRACK_CACHE_FOOTPRINT__
-                    ptrParentIndexNode->template rebalanceIndexNode<CacheType>(m_ptrCache, uidChildNode, ptrChildIndexNode, key, m_nDegree, uidToDelete, uidAffectedNode, ptrAffectedNode);
-#endif //__TRACK_CACHE_FOOTPRINT__
-
-#else //__TREE_WITH_CACHE__
-                    ptrParentIndexNode->template rebalanceIndexNode<CacheType>(m_ptrCache, uidChildNode, ptrChildIndexNode, key, m_nDegree, uidToDelete);
-#endif //__TREE_WITH_CACHE__
-
-#ifdef __TREE_WITH_CACHE__
-                    ptrCurrentNode->setDirtyFlag(true);
-                    ptrChildNode->setDirtyFlag(true);
-
-                    bool bTest = false;
-                    for (auto itCurrent = vtAccessedNodes.cbegin(), itEnd = vtAccessedNodes.cend(); itCurrent != itEnd; itCurrent++)
-                    {
-                        if ((*itCurrent).first == uidCurrentNode)
-                        {
-                            bTest = true;
-                            vtAccessedNodes.insert(itCurrent + 1, std::make_pair(*uidAffectedNode, nullptr));
-                            break;
-                        }
-                    }
-
-                    if (!bTest)
-                    {
-                        std::cout << "Critical State: Failed to push the new IndexNode (i.e. created due to the merge operation) to the list to ensure Nodes' order in the Cache." << std::endl;
-                        throw new std::logic_error(".....");   // TODO: critical log.
-                    }
-#endif //__TREE_WITH_CACHE__
-
-                    if (uidToDelete)
-                    {
-#ifdef __CONCURRENT__
-                        vtLocks.pop_back();
-                        bReleaseLock = false;
-#endif //__CONCURRENT__
-                        m_ptrCache->remove(*uidToDelete);
-                    }
-                }
-
-#ifdef __CONCURRENT__
-                if (bReleaseLock)
-                {
-                    vtLocks.pop_back();
-                }
-#endif //__CONCURRENT__
-
-                uidChildNode = vtNodes.back().first;
-                ptrChildNode = vtNodes.back().second;
-                vtNodes.pop_back();
-            }
-
-            if (ptrChildNode != nullptr && m_uidRootNode == uidChildNode)
-            {
-                if (ptrChildNode->getObjectType() == IndexNodeType::UID)
-                //if (std::holds_alternative<std::shared_ptr<IndexNodeType>>(ptrChildNode->getInnerData()))
-                {
-                    IndexNodeType* ptrInnerNode = reinterpret_cast<IndexNodeType*>(ptrChildNode->getInnerData());
-                    //std::shared_ptr<IndexNodeType> ptrInnerNode = std::get<std::shared_ptr<IndexNodeType>>(ptrChildNode->getInnerData());
-                    if (ptrInnerNode->getKeysCount() == 0)
-                    {
-#ifdef __CONCURRENT__
-                        vtLocks.pop_back();
-#endif //__CONCURRENT__
-
-                        ObjectUIDType uidNewRootNode = ptrInnerNode->getChildAt(0);
-                        m_ptrCache->remove(uidChildNode);
-                        m_uidRootNode = uidNewRootNode;
-
-
-#ifdef __TREE_WITH_CACHE__
-                        // ptrChildNode->setDirtyFlag(true); Not needed!
-#endif //__TREE_WITH_CACHE__
-                    }
-                }
-            }
-        }
-
-#ifdef __TREE_WITH_CACHE__
-        m_ptrCache->reorder(vtAccessedNodes, false);
-        vtAccessedNodes.clear();
-#endif //__TREE_WITH_CACHE__
-
-#ifdef __CONCURRENT__
-        vtLocks.clear();
-#endif //__CONCURRENT__
-
-#ifdef __TRACK_CACHE_FOOTPRINT__
-        if (nMemoryFootprint != 0)
-        {
-            m_ptrCache->updateMemoryFootprint(nMemoryFootprint);
-        }
-#endif //__TRACK_CACHE_FOOTPRINT__
+//
+//#ifdef __TRACK_CACHE_FOOTPRINT__
+//        int32_t nMemoryFootprint = 0;
+//#endif //__TRACK_CACHE_FOOTPRINT__
+//
+//        ObjectUIDType uidLastNode, uidCurrentNode;
+//        ObjectTypePtr ptrLastNode = nullptr, ptrCurrentNode = nullptr;
+//
+//        std::vector<std::pair<ObjectUIDType, ObjectTypePtr>> vtNodes;
+//
+//#ifdef __TREE_WITH_CACHE__
+//        std::vector<std::pair<ObjectUIDType, ObjectTypePtr>> vtAccessedNodes;
+//#endif //__TREE_WITH_CACHE__
+//
+//#ifdef __CONCURRENT__
+//        std::vector<std::unique_lock<std::shared_mutex>> vtLocks;
+//        vtLocks.emplace_back(std::unique_lock<std::shared_mutex>(m_mutex));
+//#endif //__CONCURRENT__
+//
+//        uidCurrentNode = m_uidRootNode.value();
+//
+//        do
+//        {
+//#ifdef __TREE_WITH_CACHE__
+//            std::optional<ObjectUIDType> uidUpdated = std::nullopt;
+//            m_ptrCache->getObject(uidCurrentNode, ptrCurrentNode);
+//#else //__TREE_WITH_CACHE__
+//            m_ptrCache->getObject(uidCurrentNode, ptrCurrentNode);
+//#endif //__TREE_WITH_CACHE__
+//
+//            if (ptrCurrentNode == nullptr)
+//            {
+//                std::cout << "Critical State: While doing remove the cache returned NULL object." << std::endl;
+//                throw new std::logic_error(".....");   // TODO: critical log.
+//            }
+//
+//#ifdef __CONCURRENT__
+//            vtLocks.emplace_back(std::unique_lock<std::shared_mutex>(ptrCurrentNode->getMutex()));
+//#endif //__CONCURRENT__
+//
+//#ifdef __TREE_WITH_CACHE__
+//            if (uidUpdated != std::nullopt)
+//            {
+//                if (ptrLastNode != nullptr)
+//                {
+//                    IndexNodeType* ptrIndexNode = reinterpret_cast<IndexNodeType*>(ptrLastNode->getInnerData());
+//                    //std::shared_ptr<IndexNodeType> ptrIndexNode = std::get<std::shared_ptr<IndexNodeType>>(ptrLastNode->getInnerData());
+//
+//#ifdef __TRACK_CACHE_FOOTPRINT__
+//                    nMemoryFootprint += ptrIndexNode->template updateChildUID<ObjectType>(ptrCurrentNode, uidCurrentNode, *uidUpdated);
+//#else //__TRACK_CACHE_FOOTPRINT__
+//                    ptrIndexNode->template updateChildUID<ObjectType>(ptrCurrentNode, uidCurrentNode, *uidUpdated);
+//#endif //__TRACK_CACHE_FOOTPRINT__
+//
+//                    ptrLastNode->setDirtyFlag(true);
+//                }
+//                else
+//                {
+//                    assert(uidCurrentNode == *m_uidRootNode);
+//                    m_uidRootNode = uidUpdated;
+//                }
+//
+//                uidCurrentNode = *uidUpdated;
+//            }
+//#endif //__TREE_WITH_CACHE__
+//
+//            vtNodes.push_back(std::pair<ObjectUIDType, ObjectTypePtr>(uidCurrentNode, ptrCurrentNode));
+//
+//#ifdef __TREE_WITH_CACHE__
+//            vtAccessedNodes.push_back(std::make_pair(uidCurrentNode, ptrCurrentNode));
+//#endif //__TREE_WITH_CACHE__
+//
+//            if (ptrCurrentNode->getObjectType() == IndexNodeType::UID)
+//            //if (std::holds_alternative<std::shared_ptr<IndexNodeType>>(ptrCurrentNode->getInnerData()))
+//            {
+//                IndexNodeType* ptrIndexNode = reinterpret_cast<IndexNodeType*>(ptrCurrentNode->getInnerData());
+//                //std::shared_ptr<IndexNodeType> ptrIndexNode = std::get<std::shared_ptr<IndexNodeType>>(ptrCurrentNode->getInnerData());
+//
+//                if (!ptrIndexNode->canTriggerMerge(m_nDegree))
+//                {
+//#ifdef __CONCURRENT__
+//                    // Although lock to the last node is enough. 
+//                    // However, the preceeding one is maintainig for the root node so that "m_uidRootNode" can be updated safely if the root node is needed to be deleted.
+//                    vtLocks.erase(vtLocks.begin(), vtLocks.end() - 2);
+//#endif //__CONCURRENT__
+//                    vtNodes.erase(vtNodes.begin(), vtNodes.end() - 1);
+//                }
+//
+//                uidLastNode = uidCurrentNode;
+//                ptrLastNode = ptrCurrentNode;
+//
+//                uidCurrentNode = ptrIndexNode->getChild(key);
+//            }
+//            else // if (std::holds_alternative<std::shared_ptr<DataNodeType>>(ptrCurrentNode->getInnerData()))
+//            {
+//                DataNodeType* ptrDataNode = reinterpret_cast<DataNodeType*>(ptrCurrentNode->getInnerData());
+//                //std::shared_ptr<DataNodeType> ptrDataNode = std::get<std::shared_ptr<DataNodeType>>(ptrCurrentNode->getInnerData());
+//
+//#ifdef __TRACK_CACHE_FOOTPRINT__
+//                if (ptrDataNode->remove(key, nMemoryFootprint) == ErrorCode::KeyDoesNotExist)
+//#else //__TRACK_CACHE_FOOTPRINT__
+//                if (ptrDataNode->remove(key) == ErrorCode::KeyDoesNotExist)
+//#endif //__TRACK_CACHE_FOOTPRINT__
+//                {
+//                    ecResult = ErrorCode::KeyDoesNotExist;
+//
+//#ifdef __CONCURRENT__
+//                    vtLocks.clear();
+//#endif //__CONCURRENT__
+//                    vtNodes.clear();
+//
+//                    break;
+//                }
+//
+//#ifdef __TREE_WITH_CACHE__
+//                ptrCurrentNode->setDirtyFlag( true);
+//#endif //__TREE_WITH_CACHE__
+//
+//                if (ptrDataNode->requireMerge(m_nDegree))
+//                {
+//                    if (ptrLastNode != nullptr) 
+//                    {
+//                        std::optional<ObjectUIDType> uidToDelete = std::nullopt;
+//
+//                        IndexNodeType* ptrParentNode = reinterpret_cast<IndexNodeType*>(ptrLastNode->getInnerData());
+//                        //std::shared_ptr<IndexNodeType> ptrParentNode = std::get<std::shared_ptr<IndexNodeType>>(ptrLastNode->getInnerData());
+//#ifdef __TREE_WITH_CACHE__
+//                        std::optional<ObjectUIDType> uidAffectedNode = std::nullopt;
+//                        ObjectTypePtr ptrAffectedNode = nullptr;
+//
+//#ifdef __TRACK_CACHE_FOOTPRINT__
+//                        ptrParentNode->template rebalanceDataNode<CacheType>(m_ptrCache, uidCurrentNode, ptrDataNode, key, m_nDegree, uidToDelete, uidAffectedNode, ptrAffectedNode, nMemoryFootprint);
+//#else //__TRACK_CACHE_FOOTPRINT__
+//                        ptrParentNode->template rebalanceDataNode<CacheType>(m_ptrCache, uidCurrentNode, ptrDataNode, key, m_nDegree, uidToDelete, uidAffectedNode, ptrAffectedNode);
+//#endif //__TRACK_CACHE_FOOTPRINT__
+//
+//#else //__TREE_WITH_CACHE__
+//                        ptrParentNode->template rebalanceDataNode<CacheType>(m_ptrCache, uidCurrentNode, ptrDataNode, key, m_nDegree, uidToDelete);
+//#endif //__TREE_WITH_CACHE__
+//
+//#ifdef __TREE_WITH_CACHE__
+//                        ptrLastNode->setDirtyFlag(true);
+//                        ptrCurrentNode->setDirtyFlag(true);
+//
+//                        bool bTest = false;
+//                        for (auto itCurrent = vtAccessedNodes.cbegin(), itEnd = vtAccessedNodes.cend(); itCurrent != itEnd; itCurrent++)
+//                        {
+//                            if ((*itCurrent).first == uidLastNode)
+//                            {
+//                                bTest = true;
+//                                vtAccessedNodes.insert(itCurrent + 1, std::make_pair(*uidAffectedNode, nullptr));
+//                                break;
+//                            }
+//                        }
+//
+//                        if (!bTest)
+//                        {
+//                            std::cout << "Critical State: Failed to push the new DataNode (i.e. created due to the merge operation) to the list to ensure Nodes' order in the Cache." << std::endl;
+//                            throw new std::logic_error(".....");   // TODO: critical log.
+//                        }
+//#endif //__TREE_WITH_CACHE__
+//
+//
+//#ifdef __CONCURRENT__
+//                        vtLocks.pop_back();
+//#endif //__CONCURRENT__
+//                        vtNodes.pop_back();
+//
+//                        if (uidToDelete)
+//                        {
+//                            m_ptrCache->remove(*uidToDelete);
+//                        }
+//                    }
+//                }
+//                else
+//                {
+//#ifdef __CONCURRENT__
+//                    vtLocks.clear();
+//#endif //__CONCURRENT__
+//                    vtNodes.clear();
+//                }
+//
+//                break;
+//            }
+//        } while (true);
+//
+//        ObjectUIDType uidChildNode;
+//        ObjectTypePtr ptrChildNode = nullptr;
+//
+//        if (vtNodes.size() > 0)
+//        {
+//            uidChildNode = vtNodes.back().first;
+//            ptrChildNode = vtNodes.back().second;
+//
+//            vtNodes.pop_back();
+//
+//            while (vtNodes.size() > 0)
+//            {
+//                ptrCurrentNode = vtNodes.back().second;
+//
+//                bool bReleaseLock = true;
+//                std::optional<ObjectUIDType> uidToDelete = std::nullopt;
+//
+//                IndexNodeType* ptrParentIndexNode = reinterpret_cast<IndexNodeType*>(ptrCurrentNode->getInnerData());
+//                //std::shared_ptr<IndexNodeType> ptrParentIndexNode = std::get<std::shared_ptr<IndexNodeType>>(ptrCurrentNode->getInnerData());
+//
+//                IndexNodeType* ptrChildIndexNode = reinterpret_cast<IndexNodeType*>(ptrChildNode->getInnerData());
+//                //std::shared_ptr<IndexNodeType> ptrChildIndexNode = std::get<std::shared_ptr<IndexNodeType>>(ptrChildNode->getInnerData());
+//
+//                if (ptrChildIndexNode->requireMerge(m_nDegree))
+//                {
+//#ifdef __TREE_WITH_CACHE__
+//                    std::optional<ObjectUIDType> uidAffectedNode = std::nullopt;
+//                    ObjectTypePtr ptrAffectedNode = nullptr;
+//
+//#ifdef __TRACK_CACHE_FOOTPRINT__
+//                    ptrParentIndexNode->template rebalanceIndexNode<CacheType>(m_ptrCache, uidChildNode, ptrChildIndexNode, key, m_nDegree, uidToDelete, uidAffectedNode, ptrAffectedNode, nMemoryFootprint);
+//#else //__TRACK_CACHE_FOOTPRINT__
+//                    ptrParentIndexNode->template rebalanceIndexNode<CacheType>(m_ptrCache, uidChildNode, ptrChildIndexNode, key, m_nDegree, uidToDelete, uidAffectedNode, ptrAffectedNode);
+//#endif //__TRACK_CACHE_FOOTPRINT__
+//
+//#else //__TREE_WITH_CACHE__
+//                    ptrParentIndexNode->template rebalanceIndexNode<CacheType>(m_ptrCache, uidChildNode, ptrChildIndexNode, key, m_nDegree, uidToDelete);
+//#endif //__TREE_WITH_CACHE__
+//
+//#ifdef __TREE_WITH_CACHE__
+//                    ptrCurrentNode->setDirtyFlag(true);
+//                    ptrChildNode->setDirtyFlag(true);
+//
+//                    bool bTest = false;
+//                    for (auto itCurrent = vtAccessedNodes.cbegin(), itEnd = vtAccessedNodes.cend(); itCurrent != itEnd; itCurrent++)
+//                    {
+//                        if ((*itCurrent).first == uidCurrentNode)
+//                        {
+//                            bTest = true;
+//                            vtAccessedNodes.insert(itCurrent + 1, std::make_pair(*uidAffectedNode, nullptr));
+//                            break;
+//                        }
+//                    }
+//
+//                    if (!bTest)
+//                    {
+//                        std::cout << "Critical State: Failed to push the new IndexNode (i.e. created due to the merge operation) to the list to ensure Nodes' order in the Cache." << std::endl;
+//                        throw new std::logic_error(".....");   // TODO: critical log.
+//                    }
+//#endif //__TREE_WITH_CACHE__
+//
+//                    if (uidToDelete)
+//                    {
+//#ifdef __CONCURRENT__
+//                        vtLocks.pop_back();
+//                        bReleaseLock = false;
+//#endif //__CONCURRENT__
+//                        m_ptrCache->remove(*uidToDelete);
+//                    }
+//                }
+//
+//#ifdef __CONCURRENT__
+//                if (bReleaseLock)
+//                {
+//                    vtLocks.pop_back();
+//                }
+//#endif //__CONCURRENT__
+//
+//                uidChildNode = vtNodes.back().first;
+//                ptrChildNode = vtNodes.back().second;
+//                vtNodes.pop_back();
+//            }
+//
+//            if (ptrChildNode != nullptr && m_uidRootNode == uidChildNode)
+//            {
+//                if (ptrChildNode->getObjectType() == IndexNodeType::UID)
+//                //if (std::holds_alternative<std::shared_ptr<IndexNodeType>>(ptrChildNode->getInnerData()))
+//                {
+//                    IndexNodeType* ptrInnerNode = reinterpret_cast<IndexNodeType*>(ptrChildNode->getInnerData());
+//                    //std::shared_ptr<IndexNodeType> ptrInnerNode = std::get<std::shared_ptr<IndexNodeType>>(ptrChildNode->getInnerData());
+//                    if (ptrInnerNode->getKeysCount() == 0)
+//                    {
+//#ifdef __CONCURRENT__
+//                        vtLocks.pop_back();
+//#endif //__CONCURRENT__
+//
+//                        ObjectUIDType uidNewRootNode = ptrInnerNode->getChildAt(0);
+//                        m_ptrCache->remove(uidChildNode);
+//                        m_uidRootNode = uidNewRootNode;
+//
+//
+//#ifdef __TREE_WITH_CACHE__
+//                        // ptrChildNode->setDirtyFlag(true); Not needed!
+//#endif //__TREE_WITH_CACHE__
+//                    }
+//                }
+//            }
+//        }
+//
+//#ifdef __TREE_WITH_CACHE__
+//        m_ptrCache->reorder(vtAccessedNodes, false);
+//        vtAccessedNodes.clear();
+//#endif //__TREE_WITH_CACHE__
+//
+//#ifdef __CONCURRENT__
+//        vtLocks.clear();
+//#endif //__CONCURRENT__
+//
+//#ifdef __TRACK_CACHE_FOOTPRINT__
+//        if (nMemoryFootprint != 0)
+//        {
+//            m_ptrCache->updateMemoryFootprint(nMemoryFootprint);
+//        }
+//#endif //__TRACK_CACHE_FOOTPRINT__
 
         return ecResult;
     }
@@ -802,7 +850,7 @@ public:
 
 #ifdef __TREE_WITH_CACHE__
         std::optional<ObjectUIDType> uidUpdated = std::nullopt;
-        m_ptrCache->getObject(m_uidRootNode.value(), ptrRootNode, uidUpdated);
+        m_ptrCache->getObject(m_uidRootNode.value(), ptrRootNode);
 
         if (uidUpdated != std::nullopt)
         {
@@ -812,15 +860,17 @@ public:
         m_ptrCache->getObject(m_uidRootNode.value(), ptrRootNode);
 #endif //__TREE_WITH_CACHE__
 
-        if (std::holds_alternative<std::shared_ptr<IndexNodeType>>(ptrRootNode->getInnerData()))
+        if (ptrRootNode->getObjectType() == IndexNodeType::UID)
+        //if (std::holds_alternative<std::shared_ptr<IndexNodeType>>(ptrRootNode->getInnerData()))
         {
-            std::shared_ptr<IndexNodeType> ptrIndexNode = std::get<std::shared_ptr<IndexNodeType>>(ptrRootNode->getInnerData());
+            //std::shared_ptr<IndexNodeType> ptrIndexNode = std::get<std::shared_ptr<IndexNodeType>>(ptrRootNode->getInnerData());
+            IndexNodeType* ptrIndexNode = reinterpret_cast<IndexNodeType*>(ptrRootNode->getInnerData());
 
             ptrIndexNode->template print<CacheType, ObjectTypePtr>(os, m_ptrCache, 0, prefix);
         }
-        else if (std::holds_alternative<std::shared_ptr<DataNodeType>>(ptrRootNode->getInnerData()))
+        else //if (std::holds_alternative<std::shared_ptr<DataNodeType>>(ptrRootNode->getInnerData()))
         {
-            std::shared_ptr<DataNodeType> ptrDataNode = std::get<std::shared_ptr<DataNodeType>>(ptrRootNode->getInnerData());
+            DataNodeType* ptrDataNode = reinterpret_cast<DataNodeType*>(ptrRootNode->getInnerData());
 
             ptrDataNode->print(os, 0, prefix);
         }
