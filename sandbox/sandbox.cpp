@@ -1283,12 +1283,12 @@ int main(int argc, char* argv[])
     ptrTree.init<DataNodeType>();
 #endif //__TREE_WITH_CACHE__
 
-    size_t nTotalEntries = 20;
+    size_t nTotalEntries = 200000;
     std::vector<int> random_numbers(nTotalEntries);//50000000);
     std::iota(random_numbers.begin(), random_numbers.end(), 1); // Fill vector with 1 to 5,000,000
-    //std::random_device rd; // Obtain a random number from hardware
-    //std::mt19937 eng(rd()); // Seed the generator
-    //std::shuffle(random_numbers.begin(), random_numbers.end(), eng);
+    std::random_device rd; // Obtain a random number from hardware
+    std::mt19937 eng(rd()); // Seed the generator
+    std::shuffle(random_numbers.begin(), random_numbers.end(), eng);
 
     std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 
@@ -1309,7 +1309,7 @@ int main(int argc, char* argv[])
     out_1.flush();
     out_1.close();
 
-    return 0;
+//    return 0;
 #ifdef __TREE_WITH_CACHE__
     begin = std::chrono::steady_clock::now();
 
@@ -1325,7 +1325,23 @@ int main(int argc, char* argv[])
 
     begin = std::chrono::steady_clock::now();
 
-    for (size_t nCntr = 0; nCntr <= nTotalEntries; nCntr = nCntr + 2)
+    for (size_t nCntr = 0; nCntr < nTotalEntries; nCntr++)
+    {
+        ValueType nValue = 0;
+        ErrorCode ec = ptrTree.search(random_numbers[nCntr], nValue);
+
+        assert(nValue == random_numbers[nCntr]);
+    }
+
+    for (size_t nCntr = 0; nCntr < nTotalEntries; nCntr++)
+    {
+        ValueType nValue = 0;
+        ErrorCode ec = ptrTree.search(random_numbers[nCntr], nValue);
+
+        assert(nValue == random_numbers[nCntr]);
+    }
+
+    for (size_t nCntr = 0; nCntr < nTotalEntries; nCntr++)
     {
         ValueType nValue = 0;
         ErrorCode ec = ptrTree.search(random_numbers[nCntr], nValue);
@@ -1339,7 +1355,7 @@ int main(int argc, char* argv[])
         << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() << "us"
         << ", " << std::chrono::duration_cast<std::chrono::nanoseconds> (end - begin).count() << "ns]"
         << std::endl;
-
+    //return 0;
     for (size_t nCntr = 0; nCntr < nTotalEntries; nCntr++)
     {
         ErrorCode ec = ptrTree.remove(nCntr);

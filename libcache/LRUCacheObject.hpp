@@ -73,7 +73,7 @@ private:
 public:
 	typedef std::tuple<ValueCoreTypes...> ValueCoreTypesTuple;
 
-private:
+public:
 	bool m_bDirty;
 
 	void* m_ptrCoreObject;
@@ -97,10 +97,13 @@ public:
 		deleteCoreObject(); // comment it out later.
 	}
 
-	inline void deleteCoreObject() const
+	inline void deleteCoreObject()
 	{
 		if (m_ptrCoreObject != nullptr)
+		{
 			delete m_ptrCoreObject;
+			m_ptrCoreObject = nullptr;
+		}
 	}
 
 	//template<class ValueCoreType>

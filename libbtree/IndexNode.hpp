@@ -134,8 +134,14 @@ public:
 			memcpy(m_vtPivots.data(), szData + nOffset, nKeysSize);
 			nOffset += nKeysSize;
 
-			uint32_t nValuesSize = (nKeyCount + 1) * sizeof(typename ObjectUIDType::NodeUID);
-			memcpy(m_vtChildren.data(), szData + nOffset, nValuesSize);
+			size_t nValueSize = sizeof(ObjectUIDType);
+			for (size_t idx = 0; idx < nKeyCount + 1; idx++)
+			{
+				ObjectUIDType uid;
+				memcpy(&uid, szData + nOffset, nValueSize);
+				m_vtChildren[idx] = PivotData(uid, nullptr);
+				nOffset += nValueSize;
+			}
 		}
 		else
 		{
@@ -251,7 +257,7 @@ public:
 				= sizeof(uint8_t)					// UID
 				+ sizeof(uint16_t)						// Total keys
 				+ (nKeyCount * sizeof(KeyType))			// Size of all keys
-				+ (nValueCount * sizeof(typename ObjectUIDType::NodeUID));	// Size of all values
+				+ (nValueCount * sizeof(ObjectUIDType));	// Size of all values
 
 			szBuffer = new char[nBufferSize + 1];
 			memset(szBuffer, 0, nBufferSize + 1);
@@ -267,9 +273,26 @@ public:
 			memcpy(szBuffer + nOffset, m_vtPivots.data(), nKeysSize);
 			nOffset += nKeysSize;
 
-			size_t nValuesSize = (nKeyCount + 1) * sizeof(typename ObjectUIDType::NodeUID);
-			memcpy(szBuffer + nOffset, m_vtChildren.data(), nValuesSize);
-			nOffset += nValuesSize;
+			size_t nValueSize = sizeof(ObjectUIDType);
+			for (auto it = m_vtChildren.begin(); it != m_vtChildren.end(); it++)
+			{
+				if ((*it).ptr->m_uidUpdated != std::nullopt)
+				{
+					memcpy(szBuffer + nOffset, &(*it).ptr->m_uidUpdated, nValueSize); \
+				}
+				else
+				{
+					memcpy(szBuffer + nOffset, &(*it).uid, nValueSize); \
+				}
+				nOffset += nValueSize; //fix it
+			}
+
+
+			/*SelfType t(szBuffer);
+			for (int idx=0; idx < m_vtChildren.size(); idx++)
+			{
+				assert(m_vtChildren[idx].uid == t.m_vtChildren[idx].uid);
+			}*/
 
 #ifdef __VALIDITY_CHECK__
 			for (auto it = m_vtChildren.begin(); it != m_vtChildren.end(); it++)
@@ -304,9 +327,10 @@ public:
 	}
 
 	// Gets the child at the given index
-	inline const ObjectUIDType& getChildAt(size_t nIdx) const
+	inline const void getChildAt(size_t nIdx, ObjectUIDType& uid, CacheObjectPtr& ptr) const
 	{
-		return m_vtChildren[nIdx].uid;
+		uid = m_vtChildren[nIdx].uid;
+		ptr = m_vtChildren[nIdx].ptr;
 	}
 
 	// Gets the child node corresponding to the given key
@@ -324,15 +348,14 @@ public:
 		size_t idx = getChildNodeIdx(key);
 		PivotData& oData = m_vtChildren[idx];
 
-		if (oData.ptr == nullptr)
+		if (oData.ptr == nullptr || oData.ptr->m_ptrCoreObject == nullptr)
 		{
-			if (oData.ptr->m_uidUpdated != std::nullopt)
+			if (oData.ptr != nullptr && oData.ptr->m_uidUpdated != std::nullopt)
 			{
 				bUpdate = true;
 
-				std::optional<ObjectUIDType> uidUpdated = std::nullopt;
-				ptrCache->getObject(*oData.ptr->m_uidUpdated, oData.ptr);
 				oData.uid = *oData.ptr->m_uidUpdated;
+				ptrCache->getObject(oData.uid, oData.ptr);
 				// Add logic to wait ...
 			}
 			else
@@ -350,17 +373,20 @@ public:
 
 	// Gets the child node corresponding to the given key
 	template <typename CacheType>
-	inline void getChildAtIdx(std::shared_ptr<CacheType>& ptrCache, size_t idx, CacheObjectPtr& ptr)
+	inline bool getChildAtIdx(std::shared_ptr<CacheType>& ptrCache, size_t idx, CacheObjectPtr& ptr)
 	{
+		bool bUpdate = false;
+
 		PivotData& oData = m_vtChildren[idx];
 
-		if (oData.ptr == nullptr)
+		if (oData.ptr == nullptr || oData.ptr->m_ptrCoreObject == nullptr)
 		{
-			if (oData.ptr->m_uidUpdated != std::nullopt)
+			if (oData.ptr != nullptr && oData.ptr->m_uidUpdated != std::nullopt)
 			{
-				std::optional<ObjectUIDType> uidUpdated = std::nullopt;
-				ptrCache->getObject(*oData.ptr->m_uidUpdated, oData.ptr);
+				bUpdate = true;
+
 				oData.uid = *oData.ptr->m_uidUpdated;
+				ptrCache->getObject(oData.uid, oData.ptr);
 				// Add logic to wait ...
 			}
 			else
@@ -372,6 +398,8 @@ public:
 
 		//uid = oData.uid;
 		ptr = oData.ptr;
+
+		return bUpdate;
 	}
 
 	// Returns the first pivot key
@@ -561,7 +589,7 @@ public:
 #ifdef __TRACK_CACHE_FOOTPRINT__
 	inline ErrorCode rebalanceIndexNode(std::shared_ptr<CacheType>& ptrCache, const ObjectUIDType& uidChild, SelfType* ptrChild, const KeyType& key, size_t nDegree, std::optional<ObjectUIDType>& uidObjectToDelete, std::optional<ObjectUIDType>& uidAffectedNode, CacheType::ObjectTypePtr& ptrAffectedNode, int32_t& nMemoryFootprint)
 #else //__TRACK_CACHE_FOOTPRINT__
-	inline ErrorCode rebalanceIndexNode(std::shared_ptr<CacheType>& ptrCache, const ObjectUIDType& uidChild, SelfType* ptrChild, const KeyType& key, size_t nDegree, std::optional<ObjectUIDType>& uidObjectToDelete, std::optional<ObjectUIDType>& uidAffectedNode, CacheType::ObjectTypePtr& ptrAffectedNode)
+	inline ErrorCode rebalanceIndexNode(std::shared_ptr<CacheType>& ptrCache, const ObjectUIDType& uidChild, SelfType* ptrChild, const KeyType& key, size_t nDegree, std::optional<ObjectUIDType>& uidObjectToDelete, CacheType::ObjectTypePtr& ptrObjectToDelete, std::optional<ObjectUIDType>& uidAffectedNode, CacheType::ObjectTypePtr& ptrAffectedNode)
 #endif //__TRACK_CACHE_FOOTPRINT__
 
 #else //__TREE_WITH_CACHE__
@@ -587,7 +615,16 @@ public:
 		{
 #ifdef __TREE_WITH_CACHE__
 			std::optional<ObjectUIDType> uidUpdated = std::nullopt;
-			ptrCache->getObject(m_vtChildren[nChildIdx - 1].uid, ptrLHSStorageObject);    //TODO: lock
+			//ptrCache->getObject(m_vtChildren[nChildIdx - 1].uid, ptrLHSStorageObject);    //TODO: lock
+
+			this->getChildAtIdx<CacheType>(ptrCache, nChildIdx - 1, ptrLHSStorageObject);
+			// check the caller must be updating the dirtyflag ..
+			//{
+			//	bUpdate = true; /// if id is upgated
+
+			//	//take care of other things... ref to the logic in insert! or better flush everything before print
+			//}
+
 #else //__TREE_WITH_CACHE__
 			ptrCache->template getObjectOfType<std::shared_ptr<SelfType>>(m_vtChildren[nChildIdx - 1], ptrLHSNode, ptrLHSStorageObject);    //TODO: lock
 #endif //__TREE_WITH_CACHE__
@@ -635,6 +672,7 @@ public:
 #endif //__TRACK_CACHE_FOOTPRINT__
 
 			uidObjectToDelete = m_vtChildren[nChildIdx].uid;
+			ptrObjectToDelete = m_vtChildren[nChildIdx].ptr;
 			assert(uidObjectToDelete == uidChild);
 
 			m_vtPivots.erase(m_vtPivots.begin() + nChildIdx - 1);
@@ -647,7 +685,9 @@ public:
 		{
 #ifdef __TREE_WITH_CACHE__
 			std::optional<ObjectUIDType> uidUpdated = std::nullopt;
-			ptrCache->getObject(m_vtChildren[nChildIdx + 1].uid, ptrRHSStorageObject);    //TODO: lock
+			//ptrCache->getObject(m_vtChildren[nChildIdx + 1].uid, ptrRHSStorageObject);    //TODO: lock
+			this->getChildAtIdx<CacheType>(ptrCache, nChildIdx + 1, ptrRHSStorageObject);
+			//check for diretly falg..
 #else //__TREE_WITH_CACHE__
 			ptrCache->template getObjectOfType<std::shared_ptr<SelfType>>(m_vtChildren[nChildIdx + 1], ptrRHSNode, ptrRHSStorageObject);    //TODO: lock
 #endif //__TREE_WITH_CACHE__
@@ -697,6 +737,7 @@ public:
 			assert(uidChild == m_vtChildren[nChildIdx].uid);
 
 			uidObjectToDelete = m_vtChildren[nChildIdx + 1].uid;
+			ptrObjectToDelete = m_vtChildren[nChildIdx + 1].ptr;
 
 			m_vtPivots.erase(m_vtPivots.begin() + nChildIdx);
 			m_vtChildren.erase(m_vtChildren.begin() + nChildIdx + 1);
@@ -715,7 +756,7 @@ public:
 #ifdef __TRACK_CACHE_FOOTPRINT__
 	inline ErrorCode rebalanceDataNode(std::shared_ptr<CacheType>& ptrCache, const ObjectUIDType& uidChild, DataNodeType* ptrChild, const KeyType& key, size_t nDegree, std::optional<ObjectUIDType>& uidObjectToDelete, std::optional<ObjectUIDType>& uidAffectedNode, CacheType::ObjectTypePtr& ptrAffectedNode, int32_t& nMemoryFootprint)
 #else //__TRACK_CACHE_FOOTPRINT__
-	inline ErrorCode rebalanceDataNode(std::shared_ptr<CacheType>& ptrCache, const ObjectUIDType& uidChild, DataNodeType* ptrChild, const KeyType& key, size_t nDegree, std::optional<ObjectUIDType>& uidObjectToDelete, std::optional<ObjectUIDType>& uidAffectedNode, CacheType::ObjectTypePtr& ptrAffectedNode)
+	inline ErrorCode rebalanceDataNode(std::shared_ptr<CacheType>& ptrCache, const ObjectUIDType& uidChild, DataNodeType* ptrChild, const KeyType& key, size_t nDegree, std::optional<ObjectUIDType>& uidObjectToDelete, CacheType::ObjectTypePtr& ptrObjectToDelete, std::optional<ObjectUIDType>& uidAffectedNode, CacheType::ObjectTypePtr& ptrAffectedNode)
 #endif //__TRACK_CACHE_FOOTPRINT__
 
 #else //__TREE_WITH_CACHE__
@@ -741,7 +782,9 @@ public:
 		{
 #ifdef __TREE_WITH_CACHE__
 			std::optional<ObjectUIDType> uidUpdated = std::nullopt;
-			ptrCache->getObject(m_vtChildren[nChildIdx - 1].uid, ptrLHSStorageObject);    //TODO: lock
+			//ptrCache->getObject(m_vtChildren[nChildIdx - 1].uid, ptrLHSStorageObject);    //TODO: lock
+			this->getChildAtIdx<CacheType>(ptrCache, nChildIdx - 1, ptrLHSStorageObject);
+			// check for dirty flag.
 #else //__TREE_WITH_CACHE__
 			ptrCache->template getObjectOfType<std::shared_ptr<DataNodeType>>(m_vtChildren[nChildIdx - 1], ptrLHSNode, ptrLHSStorageObject);    //TODO: lock
 #endif //__TREE_WITH_CACHE__
@@ -790,6 +833,7 @@ public:
 #endif //__TRACK_CACHE_FOOTPRINT__
 
 			uidObjectToDelete = m_vtChildren[nChildIdx].uid;
+			ptrObjectToDelete = m_vtChildren[nChildIdx].ptr;
 			assert(uidObjectToDelete == uidChild);
 
 			m_vtPivots.erase(m_vtPivots.begin() + nChildIdx - 1);
@@ -802,7 +846,9 @@ public:
 		{
 #ifdef __TREE_WITH_CACHE__
 			std::optional<ObjectUIDType> uidUpdated = std::nullopt;
-			ptrCache->getObject(m_vtChildren[nChildIdx + 1].uid, ptrRHSStorageObject);    //TODO: lock
+			//ptrCache->getObject(m_vtChildren[nChildIdx + 1].uid, ptrRHSStorageObject);    //TODO: lock
+			this->getChildAtIdx<CacheType>(ptrCache, nChildIdx + 1, ptrRHSStorageObject);
+			// dirty flag..
 #else //__TREE_WITH_CACHE__
 			ptrCache->template getObjectOfType<std::shared_ptr<DataNodeType>>(m_vtChildren[nChildIdx + 1], ptrRHSNode, ptrRHSStorageObject);    //TODO: lock
 #endif //__TREE_WITH_CACHE__
@@ -849,6 +895,7 @@ public:
 #endif //__TRACK_CACHE_FOOTPRINT__
 
 			uidObjectToDelete = m_vtChildren[nChildIdx + 1].uid;
+			ptrObjectToDelete = m_vtChildren[nChildIdx + 1].ptr;
 
 			m_vtPivots.erase(m_vtPivots.begin() + nChildIdx);
 			m_vtChildren.erase(m_vtChildren.begin() + nChildIdx + 1);
@@ -1105,8 +1152,9 @@ public:
 
 public:
 	template <typename CacheType, typename CacheObjectType>
-	void print(std::ofstream& os, std::shared_ptr<CacheType>& ptrCache, size_t nLevel, string stPrefix)
+	bool print(std::ofstream& os, std::shared_ptr<CacheType>& ptrCache, size_t nLevel, string stPrefix)
 	{
+		bool bUpdate = false;
 		uint8_t nSpaceCount = 7;
 
 		stPrefix.append(std::string(nSpaceCount - 1, ' '));
@@ -1142,7 +1190,12 @@ public:
 #ifdef __TREE_WITH_CACHE__
 			std::optional<ObjectUIDType> uidUpdated = std::nullopt;
 			
-			this->getChildAtIdx<CacheType>(ptrCache, nIndex, ptrNode);
+			if(this->getChildAtIdx<CacheType>(ptrCache, nIndex, ptrNode))
+			{
+				bUpdate = true; /// if id is upgated
+
+				//take care of other things... ref to the logic in insert! or better flush everything before print
+			}
 
 			//ptrCache->getObject(m_vtChildren[nIndex].uid, ptrNode, uidUpdated);
 
@@ -1161,7 +1214,10 @@ public:
 			{
 				//shared_ptr<SelfType> ptrIndexNode = std::get<shared_ptr<SelfType>>(ptrNode->getInnerData());
 				SelfType* ptrIndexNode = reinterpret_cast<SelfType*>(ptrNode->getInnerData());
-				ptrIndexNode->template print<CacheType, CacheObjectType>(os, ptrCache, nLevel + 1, stPrefix);
+				if (ptrIndexNode->template print<CacheType, CacheObjectType>(os, ptrCache, nLevel + 1, stPrefix))
+				{
+					ptrNode->setDirtyFlag(true);
+				}
 			}
 			else //if (std::holds_alternative<shared_ptr<DataNodeType>>(ptrNode->getInnerData()))
 			{
@@ -1169,6 +1225,8 @@ public:
 				ptrDataNode->print(os, nLevel + 1, stPrefix);
 			}
 		}
+
+		return bUpdate;
 	}
 
 	void wieHiestDu()
