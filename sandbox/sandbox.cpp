@@ -1,5 +1,6 @@
 #include <iostream>
 #include "LRUCache.hpp"
+#include "CLOCKCache.hpp"
 #include "BPlusStore.hpp"
 #include "NoCache.hpp"
 #include "glog/logging.h"
@@ -15,9 +16,10 @@
 #include "VolatileStorage.hpp"
 #include "NoCacheObject.hpp"
 #include "LRUCacheObject.hpp"
+#include "CLOCKCacheObject.hpp"
 #include "FileStorage.hpp"
 #include "TypeMarshaller.hpp"
-#include "PMemStorage.hpp"
+// #include "PMemStorage.hpp"  // Removed - using VolatileStorage only
 #include "TypeUID.h"
 #include <iostream>
 #include "ObjectFatUID.h"
@@ -35,11 +37,11 @@
 #ifdef _MSC_VER
 #define FILE_STORAGE_PATH "c:\\filestore.hdb"
 #define PMEM_STORAGE_PATH "c:\\filestore.hdb"
-#define PMEM_STORAGE_PATH_II "/mnt/tmpfs/datafile2"
+#define PMEM_STORAGE_PATH_II "./datafile2"
 #else
-#define FILE_STORAGE_PATH "/mnt/tmpfs/filestore.hdb"
-#define PMEM_STORAGE_PATH "/mnt/tmpfs/datafile1"
-#define PMEM_STORAGE_PATH_II "/mnt/tmpfs/datafile2"
+#define FILE_STORAGE_PATH "./filestore.hdb"
+#define PMEM_STORAGE_PATH "./datafile1"
+#define PMEM_STORAGE_PATH_II "./datafile2"
 #endif
 
 #ifdef __CONCURRENT__
@@ -551,16 +553,16 @@ void test_for_ints()
             typedef DataNode<KeyType, ValueType, ObjectUIDType, TYPE_UID::DATA_NODE_INT_INT> DataNodeType;
             typedef IndexNode<KeyType, ValueType, ObjectUIDType, DataNodeType, TYPE_UID::INDEX_NODE_INT_INT> IndexNodeType;
 
-            typedef SSARCCacheObject<TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
+            typedef CLOCKCacheObject<TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
             typedef IFlushCallback<ObjectUIDType, ObjectType> ICallback;
 
-            typedef BPlusStore<ICallback, KeyType, ValueType, SSARCCache<ICallback, VolatileStorage<ICallback, ObjectUIDType, SSARCCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreType;
+            typedef BPlusStore<ICallback, KeyType, ValueType, CLOCKCache<ICallback, VolatileStorage<ICallback, ObjectUIDType, CLOCKCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreType;
             BPlusStoreType ptrTree(nDegree, 100, 1024, 10ULL * 1024 * 1024 * 1024);
             ptrTree.template init<DataNodeType>();
 
             int_test<BPlusStoreType>(&ptrTree, 100000);
         }
-        {
+        /*{
             typedef int KeyType;
             typedef int ValueType;
             typedef ObjectFatUID ObjectUIDType;
@@ -576,7 +578,9 @@ void test_for_ints()
             ptrTree.init<DataNodeType>();
 
             int_test<BPlusStoreType>(&ptrTree, 100000);
-        }
+        }*/
+        // PMemStorage test commented out - using VolatileStorage only
+        /*
         {
             typedef int KeyType;
             typedef int ValueType;
@@ -595,7 +599,8 @@ void test_for_ints()
             int_test<BPlusStoreType>(&ptrTree, 1000000);
 #endif //_MSC_VER
         }
-        {
+        */
+        /*{
             typedef int KeyType;
             typedef int ValueType;
             typedef ObjectFatUID ObjectUIDType;
@@ -628,7 +633,9 @@ void test_for_ints()
             ptrTree.init<DataNodeType>();
 
             int_test<BPlusStoreType>(&ptrTree, 100000);
-        }
+        }*/
+        // PMemStorage test commented out - using VolatileStorage only
+        /*
         {
             typedef int KeyType;
             typedef int ValueType;
@@ -647,6 +654,7 @@ void test_for_ints()
             int_test<BPlusStoreType>(&ptrTree, 1000000);
 #endif //_MSC_VER
         }
+        */
 #endif //__TREE_WITH_CACHE__
 
         std::cout << std::endl;
@@ -713,17 +721,17 @@ void test_for_threaded()
             typedef DataNode<KeyType, ValueType, ObjectUIDType, TYPE_UID::DATA_NODE_INT_INT> DataNodeType;
             typedef IndexNode<KeyType, ValueType, ObjectUIDType, DataNodeType, TYPE_UID::INDEX_NODE_INT_INT> IndexNodeType;
 
-            typedef LRUCacheObject<TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
+            typedef CLOCKCacheObject<TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
             typedef IFlushCallback<ObjectUIDType, ObjectType> ICallback;
 
 
-            typedef BPlusStore<ICallback, KeyType, ValueType, LRUCache<ICallback, VolatileStorage<ICallback, ObjectUIDType, LRUCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreType;
+            typedef BPlusStore<ICallback, KeyType, ValueType, CLOCKCache<ICallback, VolatileStorage<ICallback, ObjectUIDType, CLOCKCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreType;
             BPlusStoreType ptrTree(nDegree, 100, 1024, 10ULL * 1024 * 1024 * 1024);
             ptrTree.template init<DataNodeType>();
 
             threaded_test<BPlusStoreType>(&ptrTree, nDegree, 1000000, 12);
         }
-        {
+        /*{
             typedef int KeyType;
             typedef int ValueType;
             typedef ObjectFatUID ObjectUIDType;
@@ -739,7 +747,9 @@ void test_for_threaded()
             ptrTree.template init<DataNodeType>();
 
             threaded_test<BPlusStoreType>(&ptrTree, nDegree, 1000000, 12);
-        }
+        }*/
+        // PMemStorage test commented out - using VolatileStorage only
+        /*
         {
             typedef int KeyType;
             typedef int ValueType;
@@ -758,7 +768,8 @@ void test_for_threaded()
             threaded_test<BPlusStoreType>(&ptrTree, nDegree, 1000000, 12);
 #endif //_MSC_VER
         }
-        {
+        */
+        /*{
             typedef int KeyType;
             typedef int ValueType;
             typedef ObjectFatUID ObjectUIDType;
@@ -792,7 +803,9 @@ void test_for_threaded()
             ptrTree.template init<DataNodeType>();
 
             threaded_test<BPlusStoreType>(&ptrTree, nDegree, 1000000, 12);
-        }
+        }*/
+        // PMemStorage test commented out - using VolatileStorage only
+        /*
         {
             typedef int KeyType;
             typedef int ValueType;
@@ -811,6 +824,7 @@ void test_for_threaded()
             threaded_test<BPlusStoreType>(&ptrTree, nDegree, 1000000, 6);
 #endif //_MSC_VER
         }
+        */
 #endif //__TREE_WITH_CACHE__
 
         std::cout << std::endl;
@@ -822,7 +836,7 @@ void quick_test()
 {
     for (size_t idx = 0; idx < 5; idx++) {
         test_for_ints();
-        test_for_string();
+        //test_for_string();
         test_for_threaded();
     }
 }
@@ -975,10 +989,11 @@ void fptree_bm()
     //typedef BPlusStore<ICallback, KeyType, ValueType, LRUCache<ICallback, FileStorage<ICallback, ObjectUIDType, LRUCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreType;
     //BPlusStoreType ptrTree(24, 1024, 512, 10ULL * 1024 * 1024 * 1024, FILE_STORAGE_PATH);
 
-    //typedef BPlusStore<ICallback, KeyType, ValueType, LRUCache<ICallback, VolatileStorage<ICallback, ObjectUIDType, LRUCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreType;
+    typedef BPlusStore<ICallback, KeyType, ValueType, LRUCache<ICallback, VolatileStorage<ICallback, ObjectUIDType, LRUCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreType;
     //BPlusStoreType ptrTree(24, 1024, 4096, 10ULL * 1024 * 1024 * 1024);
 
-    typedef BPlusStore<ICallback, KeyType, ValueType, LRUCache<ICallback, PMemStorage<ICallback, ObjectUIDType, LRUCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreType;
+    // PMemStorage commented out - using VolatileStorage only
+    // typedef BPlusStore<ICallback, KeyType, ValueType, LRUCache<ICallback, PMemStorage<ICallback, ObjectUIDType, LRUCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreType;
 	
     //typedef BPlusStore<KeyType, ValueType, NoCache<ObjectUIDType, NoCacheObject, DataNodeType, IndexNodeType>> BPlusStoreType;
     
@@ -1008,7 +1023,7 @@ void fptree_bm()
             for (size_t nCntr = 0; nCntr < 1; nCntr++)
             {
                 //BPlusStoreType ptrTree(nDegree, nTotalMemoryInMB, nBlockSize, 25ULL * 1024 * 1024 * 1024, FILE_STORAGE_PATH);
-                BPlusStoreType ptrTree(nDegree, nTotalInternalNodes, nBlockSize, 120ULL * 1024 * 1024 * 1024, PMEM_STORAGE_PATH_II);
+                BPlusStoreType ptrTree(nDegree, nTotalInternalNodes, nBlockSize, 120ULL * 1024 * 1024 * 1024); // VolatileStorage doesn't need file path
                 ptrTree.init<DataNodeType>();
 
                 std::cout << "Iteration = " << nCntr + 1 << std::endl;
@@ -1241,9 +1256,9 @@ int main(int argc, char* argv[])
     //cache_team_test();
     //return 0;
 
-    fptree_bm();
-    //quick_test();
-    return 0;
+    //fptree_bm();
+    quick_test();
+    //return 0;
 
     typedef int KeyType;
     typedef int ValueType;
@@ -1257,13 +1272,13 @@ int main(int argc, char* argv[])
     //typedef DataNode<KeyType, ValueType, ObjectUIDType, TYPE_UID::DATA_NODE_INT_INT> DataNodeType;
     //typedef IndexNode<KeyType, ValueType, ObjectUIDType, DataNodeType, TYPE_UID::INDEX_NODE_INT_INT> IndexNodeType;
 
-    typedef LRUCacheObject<TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
+    typedef CLOCKCacheObject<TypeMarshaller, DataNodeType, IndexNodeType> ObjectType;
     typedef IFlushCallback<ObjectUIDType, ObjectType> ICallback;
 
     //typedef BPlusStore<ICallback, KeyType, ValueType, LRUCache<ICallback, FileStorage<ICallback, ObjectUIDType, LRUCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreType;
     //BPlusStoreType ptrTree(24, 1024, 512, 10ULL * 1024 * 1024 * 1024, FILE_STORAGE_PATH);
     
-    typedef BPlusStore<ICallback, KeyType, ValueType, LRUCache<ICallback, VolatileStorage<ICallback, ObjectUIDType, LRUCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreType;
+    typedef BPlusStore<ICallback, KeyType, ValueType, CLOCKCache<ICallback, VolatileStorage<ICallback, ObjectUIDType, CLOCKCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreType;
     BPlusStoreType ptrTree(24, 1024, 1024, 10ULL * 1024 * 1024 * 1024);
     
     //typedef BPlusStore<ICallback, KeyType, ValueType, LRUCache<ICallback, PMemStorage<ICallback, ObjectUIDType, LRUCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreType;
@@ -1283,7 +1298,7 @@ int main(int argc, char* argv[])
     ptrTree.init<DataNodeType>();
 #endif //__TREE_WITH_CACHE__
 
-    size_t nTotalEntries = 50000000;
+    size_t nTotalEntries = 100000;
     std::vector<int> random_numbers(nTotalEntries);//50000000);
     std::iota(random_numbers.begin(), random_numbers.end(), 1); // Fill vector with 1 to 5,000,000
     std::random_device rd; // Obtain a random number from hardware
