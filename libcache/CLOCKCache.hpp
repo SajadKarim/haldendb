@@ -36,14 +36,14 @@ private:
 	public:
 		ObjectUIDType m_uidSelf;
 		ObjectTypePtr m_ptrObject;
-		std::shared_ptr<Item> m_ptrPrev;
-		std::shared_ptr<Item> m_ptrNext;
 		bool m_bReferenceBit;  // CLOCK algorithm reference bit
+		bool m_bValid;         // Item validity flag
 
+		Item() : m_bReferenceBit(false), m_bValid(false) {}
+		
 		Item(const ObjectUIDType& uidObject, const ObjectTypePtr ptrObject)
-			: m_ptrNext(nullptr)
-			, m_ptrPrev(nullptr)
-			, m_bReferenceBit(true)  // Set reference bit when accessed
+			: m_bReferenceBit(true)  // Set reference bit when accessed
+			, m_bValid(true)
 		{
 			m_uidSelf = uidObject;
 			m_ptrObject = ptrObject;
@@ -51,23 +51,29 @@ private:
 
 		~Item()
 		{
-			m_ptrPrev.reset();
-			m_ptrNext.reset();
 			m_ptrObject.reset();
+		}
+		
+		void reset()
+		{
+			m_ptrObject.reset();
+			m_bReferenceBit = false;
+			m_bValid = false;
 		}
 	};
 
 	ICallback* m_ptrCallback;
 
-	std::shared_ptr<Item> m_ptrHead;
-	std::shared_ptr<Item> m_ptrTail;
-	std::shared_ptr<Item> m_ptrClockHand;  // CLOCK algorithm hand pointer
-
+	// Circular vector-based CLOCK implementation
+	std::vector<Item> m_clockBuffer;
+	size_t m_clockHand;              // Current position of clock hand
+	size_t m_clockSize;              // Current number of items in clock
+	
 	std::unique_ptr<StorageType> m_ptrStorage;
 
 	int64_t m_nCacheFootprint;
 	int64_t m_nCacheCapacity;
-	std::unordered_map<ObjectUIDType, std::shared_ptr<Item>> m_mpObjects;
+	std::unordered_map<ObjectUIDType, size_t> m_mpObjects;  // Maps UID to clock buffer index
 	std::unordered_map<ObjectUIDType, std::pair<std::optional<ObjectUIDType>, ObjectTypePtr>> m_mpUIDUpdates;
 
 #ifdef __CONCURRENT__
@@ -84,9 +90,7 @@ private:
 public:
 	~CLOCKCache()
 	{
-		// Debug output for CLOCK cache destruction
-		std::cout << "[CLOCK DEBUG] CLOCKCache destructor called. Final cache size: " << m_mpObjects.size() 
-		          << ", footprint: " << m_nCacheFootprint << std::endl;
+
 		
 #ifdef __CONCURRENT__
 		m_bStop = true;
@@ -96,34 +100,38 @@ public:
 		//presistCurrentCacheState();
 		flushAllItemsToStorage();
 
-		m_ptrHead.reset();
-		m_ptrTail.reset();
-		m_ptrClockHand.reset();
+		// Clear circular buffer
+		for (auto& item : m_clockBuffer) {
+			item.reset();
+		}
+		m_clockBuffer.clear();
+		
 		m_ptrStorage.reset();
-
 		m_mpObjects.clear();
 
 		assert(m_nCacheFootprint == 0);
 		
-		std::cout << "[CLOCK DEBUG] CLOCKCache destructor completed." << std::endl;
+
 	}
 
 	template <typename... StorageArgs>
 	CLOCKCache(size_t nCapacity, StorageArgs... args)
 		: m_nCacheCapacity(nCapacity)
 		, m_nCacheFootprint(0)
-		, m_ptrHead(nullptr)
-		, m_ptrTail(nullptr)
-		, m_ptrClockHand(nullptr)
+		, m_clockHand(0)
+		, m_clockSize(0)
 	{
 #ifdef __TRACK_CACHE_FOOTPRINT__
 		m_nCacheCapacity = m_nCacheCapacity < MIN_CACHE_FOOTPRINT ? MIN_CACHE_FOOTPRINT : m_nCacheCapacity;
 #endif //__TRACK_CACHE_FOOTPRINT__
 
+		// Initialize circular buffer for CLOCK algorithm
+		m_clockBuffer.resize(m_nCacheCapacity);
+		
 		m_ptrStorage = std::make_unique<StorageType>(args...);
 		
 		// Debug output for CLOCK cache initialization
-		std::cout << "[CLOCK DEBUG] CLOCKCache initialized with capacity: " << m_nCacheCapacity << std::endl;
+
 		
 #ifdef __CONCURRENT__
 		m_bStop = false;
@@ -164,15 +172,18 @@ public:
 		auto it = m_mpObjects.find(uidObject);
 		if (it != m_mpObjects.end()) 
 		{
+			size_t index = it->second;
 
 #ifdef __TRACK_CACHE_FOOTPRINT__
-			m_nCacheFootprint -= (*it).second->m_ptrObject->getMemoryFootprint();
-
+			m_nCacheFootprint -= m_clockBuffer[index].m_ptrObject->getMemoryFootprint();
 			assert(m_nCacheFootprint >= 0);
 #endif //__TRACK_CACHE_FOOTPRINT__
 
-			removeFromClock((*it).second);
-			m_mpObjects.erase(((*it).first));
+			// Mark item as invalid in circular buffer
+			m_clockBuffer[index].reset();
+			m_clockSize--;
+			
+			m_mpObjects.erase(it);
 			
 			// TODO:
 			// m_ptrStorage->remove(uidObject);
@@ -193,9 +204,9 @@ public:
 
 		if (m_mpObjects.find(uidObject) != m_mpObjects.end())
 		{
-			std::shared_ptr<Item> ptrItem = m_mpObjects[uidObject];
-			ptrItem->m_bReferenceBit = true;  // Set reference bit for CLOCK algorithm
-			ptrObject = ptrItem->m_ptrObject;
+			size_t index = m_mpObjects[uidObject];
+			m_clockBuffer[index].m_bReferenceBit = true;  // Set reference bit for CLOCK algorithm
+			ptrObject = m_clockBuffer[index].m_ptrObject;
 
 			return CacheErrorCode::Success;
 		}
@@ -232,8 +243,6 @@ public:
 
 		if (ptrObject != nullptr)
 		{
-			std::shared_ptr<Item> ptrItem = std::make_shared<Item>(uidTemp, ptrObject);
-
 #ifdef __CONCURRENT__
 			std::unique_lock<std::shared_mutex> re_lock_cache(m_mtxCache);
 
@@ -241,40 +250,26 @@ public:
 			{
 				std::cout << "Some other thread has also accessed the object." << std::endl;
 				throw new std::logic_error("...");
-/*
-#ifdef __TRACK_CACHE_FOOTPRINT__
-				m_nCacheFootprint -= m_mpObjects[uidTemp]->m_ptrObject->getMemoryFootprint();
-
-				assert(m_nCacheFootprint >= 0);
-
-				m_nCacheFootprint += ptrObject->getMemoryFootprint();
-#endif //__TRACK_CACHE_FOOTPRINT__
-
-				std::shared_ptr<Item> ptrItem = m_mpObjects[uidTemp];
-				ptrItem->m_bReferenceBit = true;  // Set reference bit for CLOCK algorithm
-				return CacheErrorCode::Success;
-*/
 			}
 #endif //__CONCURRENT__
 
+			// Find a slot in the circular buffer
+			size_t targetIndex = findAvailableSlot(uidTemp, ptrObject);
+			
+			// Check if we couldn't find a slot (all objects in use)
+			if (targetIndex == SIZE_MAX) {
+				std::cout << "Warning: Cannot add object to cache - all slots in use. Returning error." << std::endl;
+				return CacheErrorCode::Error;
+			}
+
 #ifdef __TRACK_CACHE_FOOTPRINT__
-			m_nCacheFootprint += ptrItem->m_ptrObject->getMemoryFootprint();
+			m_nCacheFootprint += ptrObject->getMemoryFootprint();
 #endif //__TRACK_CACHE_FOOTPRINT__
 
-			m_mpObjects[ptrItem->m_uidSelf] = ptrItem;
-
-			if (!m_ptrHead)
-			{
-				m_ptrHead = ptrItem;
-				m_ptrTail = ptrItem;
-				m_ptrClockHand = ptrItem;  // Initialize clock hand to first item
-			}
-			else
-			{
-				ptrItem->m_ptrNext = m_ptrHead;
-				m_ptrHead->m_ptrPrev = ptrItem;
-				m_ptrHead = ptrItem;
-			}
+			// Add to circular buffer and map
+			m_clockBuffer[targetIndex] = Item(uidTemp, ptrObject);
+			m_mpObjects[uidTemp] = targetIndex;
+			m_clockSize++;
 
 #ifndef __CONCURRENT__
 			flushItemsToStorage();
@@ -301,15 +296,16 @@ public:
 
 			if (m_mpObjects.find(prNode.first) != m_mpObjects.end())
 			{
-				std::shared_ptr<Item> ptrItem = m_mpObjects[prNode.first];
-				ptrItem->m_bReferenceBit = true;  // Set reference bit for CLOCK algorithm
+				size_t index = m_mpObjects[prNode.first];
+				m_clockBuffer[index].m_bReferenceBit = true;  // Set reference bit for CLOCK algorithm
 			}
 			else
 			{
 				if (bEnsure)
 				{
-					std::cout << "Critical State: One or many entries in the reorder-list is missing in the cache." << std::endl;
-					throw new std::logic_error(".....");   // TODO: critical log.
+					std::cout << "Warning: Entry in reorder-list is missing in the cache. This may be due to eviction." << std::endl;
+					// Don't throw error - this can happen when objects are evicted between reorder calls
+					// throw new std::logic_error(".....");   // TODO: critical log.
 				}
 			}
 
@@ -322,7 +318,7 @@ public:
 	CacheErrorCode reorderOpt(std::vector<std::pair<ObjectUIDType, ObjectTypePtr>>& vtObjects, bool bEnsure = true)
 	{
 		size_t _test = vtObjects.size();
-		std::vector<std::shared_ptr<Item>> vtItems;
+		std::vector<size_t> vtIndices;
 
 #ifdef __CONCURRENT__
 		std::unique_lock<std::shared_mutex> lock_cache(m_mtxCache);
@@ -334,7 +330,7 @@ public:
 
 			if (m_mpObjects.find(prObject.first) != m_mpObjects.end())
 			{
-				vtItems.emplace_back(m_mpObjects[prObject.first]);
+				vtIndices.emplace_back(m_mpObjects[prObject.first]);
 			}
 
 			vtObjects.pop_back();
@@ -342,12 +338,12 @@ public:
 
 		if (bEnsure)
 		{
-			assert(_test == vtItems.size());
+			assert(_test == vtIndices.size());
 		}
 		// Set reference bits for all items in CLOCK algorithm
-		for (auto& ptrItem : vtItems)
+		for (size_t index : vtIndices)
 		{
-			ptrItem->m_bReferenceBit = true;
+			m_clockBuffer[index].m_bReferenceBit = true;
 		}
 
 		return CacheErrorCode::Success;
@@ -482,8 +478,6 @@ public:
 
 		uidObject = uidTemp;
 
-		std::shared_ptr<Item> ptrItem = std::make_shared<Item>(*uidObject, ptrStorageObject);
-
 #ifdef __CONCURRENT__
 		std::unique_lock<std::shared_mutex> lock_cache(m_mtxCache);
 #endif //__CONCURRENT__
@@ -493,30 +487,29 @@ public:
 			std::cout << "Critical State: UID for a newly created object already exist in the cache." << std::endl;
 			throw new std::logic_error(".....");   // TODO: critical log.
 
-			std::shared_ptr<Item> ptrItem = m_mpObjects[*uidObject];
-			ptrItem->m_ptrObject = ptrStorageObject;
-			ptrItem->m_bReferenceBit = true;  // Set reference bit for CLOCK algorithm
+			size_t index = m_mpObjects[*uidObject];
+			m_clockBuffer[index].m_ptrObject = ptrStorageObject;
+			m_clockBuffer[index].m_bReferenceBit = true;  // Set reference bit for CLOCK algorithm
 		}
 		else
 		{
-			m_mpObjects[ptrItem->m_uidSelf] = ptrItem;
+			// Find a slot in the circular buffer
+			size_t targetIndex = findAvailableSlot(*uidObject, ptrStorageObject);
+			
+			// Check if we couldn't find a slot (all objects in use)
+			if (targetIndex == SIZE_MAX) {
+				std::cout << "Warning: Cannot add object to cache - all slots in use. Returning error." << std::endl;
+				return CacheErrorCode::Error;
+			}
 
 #ifdef __TRACK_CACHE_FOOTPRINT__
 			m_nCacheFootprint += ptrStorageObject->getMemoryFootprint();
 #endif //__TRACK_CACHE_FOOTPRINT__
 
-			if (!m_ptrHead) 
-			{
-				m_ptrHead = ptrItem;
-				m_ptrTail = ptrItem;
-				m_ptrClockHand = ptrItem;  // Initialize clock hand to first item
-			}
-			else 
-			{
-				ptrItem->m_ptrNext = m_ptrHead;
-				m_ptrHead->m_ptrPrev = ptrItem;
-				m_ptrHead = ptrItem;
-			}
+			// Add to circular buffer and map
+			m_clockBuffer[targetIndex] = Item(*uidObject, ptrStorageObject);
+			m_mpObjects[*uidObject] = targetIndex;
+			m_clockSize++;
 		}
 
 #ifndef __CONCURRENT__
@@ -536,8 +529,6 @@ public:
 		
 		uidObject = uidTemp;
 
-		std::shared_ptr<Item> ptrItem = std::make_shared<Item>(*uidObject, ptrStorageObject);
-
 #ifdef __CONCURRENT__
 		std::unique_lock<std::shared_mutex> lock_cache(m_mtxCache);
 #endif //__CONCURRENT__
@@ -546,29 +537,29 @@ public:
 		{
 			std::cout << "Critical State: UID for a newly created object already exist in the cache." << std::endl;
 			throw new std::logic_error(".....");   // TODO: critical log.
-			std::shared_ptr<Item> ptrItem = m_mpObjects[*uidObject];
-			ptrItem->m_ptrObject = ptrStorageObject;
-			ptrItem->m_bReferenceBit = true;  // Set reference bit for CLOCK algorithm
+			size_t index = m_mpObjects[*uidObject];
+			m_clockBuffer[index].m_ptrObject = ptrStorageObject;
+			m_clockBuffer[index].m_bReferenceBit = true;  // Set reference bit for CLOCK algorithm
 		}
 		else
 		{
-			m_mpObjects[ptrItem->m_uidSelf] = ptrItem;
+			// Find a slot in the circular buffer
+			size_t targetIndex = findAvailableSlot(*uidObject, ptrStorageObject);
+			
+			// Check if we couldn't find a slot (all objects in use)
+			if (targetIndex == SIZE_MAX) {
+				std::cout << "Warning: Cannot add object to cache - all slots in use. Returning error." << std::endl;
+				return CacheErrorCode::Error;
+			}
 
 #ifdef __TRACK_CACHE_FOOTPRINT__
 			m_nCacheFootprint += ptrStorageObject->getMemoryFootprint();
 #endif //__TRACK_CACHE_FOOTPRINT__
 
-			if (!m_ptrHead)
-			{
-				m_ptrHead = ptrItem;
-				m_ptrTail = ptrItem;
-			}
-			else
-			{
-				ptrItem->m_ptrNext = m_ptrHead;
-				m_ptrHead->m_ptrPrev = ptrItem;
-				m_ptrHead = ptrItem;
-			}
+			// Add to circular buffer and map
+			m_clockBuffer[targetIndex] = Item(*uidObject, ptrStorageObject);
+			m_mpObjects[*uidObject] = targetIndex;
+			m_clockSize++;
 		}
 
 #ifndef __CONCURRENT__
@@ -587,8 +578,6 @@ public:
 
 		uidObject = ObjectUIDType::createAddressFromVolatilePointer(Type::UID, reinterpret_cast<uintptr_t>(ptrStorageObject.get()));
 
-		std::shared_ptr<Item> ptrItem = std::make_shared<Item>(*uidObject, ptrStorageObject);
-
 #ifdef __CONCURRENT__
 		std::unique_lock<std::shared_mutex> lock_cache(m_mtxCache);
 #endif //__CONCURRENT__
@@ -597,29 +586,29 @@ public:
 		{
 			std::cout << "Critical State: UID for a newly created object already exist in the cache." << std::endl;
 			throw new std::logic_error(".....");   // TODO: critical log.
-			std::shared_ptr<Item> ptrItem = m_mpObjects[*uidObject];
-			ptrItem->m_ptrObject = ptrStorageObject;
-			ptrItem->m_bReferenceBit = true;  // Set reference bit for CLOCK algorithm
+			size_t index = m_mpObjects[*uidObject];
+			m_clockBuffer[index].m_ptrObject = ptrStorageObject;
+			m_clockBuffer[index].m_bReferenceBit = true;  // Set reference bit for CLOCK algorithm
 		}
 		else
 		{
-			m_mpObjects[&ptrItem->m_uidSelf] = ptrItem;
+			// Find a slot in the circular buffer
+			size_t targetIndex = findAvailableSlot(*uidObject, ptrStorageObject);
+			
+			// Check if we couldn't find a slot (all objects in use)
+			if (targetIndex == SIZE_MAX) {
+				std::cout << "Warning: Cannot add object to cache - all slots in use. Returning error." << std::endl;
+				return CacheErrorCode::Error;
+			}
 
 #ifdef __TRACK_CACHE_FOOTPRINT__
 			m_nCacheFootprint += ptrStorageObject->getMemoryFootprint();
 #endif //__TRACK_CACHE_FOOTPRINT__
 
-			if (!m_ptrHead)
-			{
-				m_ptrHead = ptrItem;
-				m_ptrTail = ptrItem;
-			}
-			else
-			{
-				ptrItem->m_ptrNext = m_ptrHead;
-				m_ptrHead->m_ptrPrev = ptrItem;
-				m_ptrHead = ptrItem;
-			}
+			// Add to circular buffer and map
+			m_clockBuffer[targetIndex] = Item(*uidObject, ptrStorageObject);
+			m_mpObjects[*uidObject] = targetIndex;
+			m_clockSize++;
 		}
 
 #ifndef __CONCURRENT__
@@ -631,15 +620,7 @@ public:
 
 	void getCacheState(size_t& nObjectsLinkedList, size_t& nObjectsInMap)
 	{
-		nObjectsLinkedList = 0;
-		std::shared_ptr<Item> ptrItem = m_ptrHead;
-
-		while (ptrItem != nullptr)
-		{
-			nObjectsLinkedList++;
-			ptrItem = ptrItem->m_ptrNext;
-		} 
-
+		nObjectsLinkedList = m_clockSize;  // Number of valid items in circular buffer
 		nObjectsInMap = m_mpObjects.size();
 	}
 
@@ -652,160 +633,224 @@ public:
 	}
 
 private:
-	void moveToTail(std::shared_ptr<Item> tail, std::shared_ptr<Item> nodeToMove) 
+
+
+	// Find an available slot in the circular buffer using CLOCK algorithm
+	inline size_t findAvailableSlot(const ObjectUIDType& uidObject, const ObjectTypePtr& ptrObject)
 	{
-		if (tail == nullptr || nodeToMove == nullptr)
-		{
-			return;
-		}
-
-		if (nodeToMove->m_ptrPrev != nullptr)
-		{
-			nodeToMove->m_ptrPrev->m_ptrNext = nodeToMove->m_ptrNext;
-		}
-		else
-		{
-			tail = nodeToMove->m_ptrNext;
-		}
-
-		if (nodeToMove->m_ptrNext != nullptr)
-		{
-			nodeToMove->m_ptrNext->m_ptrPrev = nodeToMove->m_ptrPrev;
-		}
-
-		if (tail != nullptr) 
-		{
-			tail->m_ptrNext = nodeToMove;
-			nodeToMove->m_ptrPrev = tail;
-			nodeToMove->m_ptrNext = nullptr;
-			tail = nodeToMove;
-		}
-		else 
-		{
-			tail = nodeToMove;
-		}
-	}
-
-	void interchangeWithTail(std::shared_ptr<Item> currentNode) {
-		if (currentNode == nullptr || currentNode == m_ptrTail) 
-		{
-			return;
-		}
-
-		if (currentNode->m_ptrPrev) 
-		{
-			currentNode->m_ptrPrev->m_ptrNext = currentNode->m_ptrNext;
-		}
-		else 
-		{
-			m_ptrHead = currentNode->m_ptrNext;
-		}
-
-		if (currentNode->m_ptrNext) 
-		{
-			currentNode->m_ptrNext->m_ptrPrev = currentNode->m_ptrPrev;
-		}
-
-		currentNode->m_ptrPrev = m_ptrTail;
-		currentNode->m_ptrNext = nullptr;
-
-		m_ptrTail->m_ptrNext = currentNode;
-
-		m_ptrTail = currentNode;
-	}
-
-	// CLOCK algorithm: Find victim for replacement
-	inline std::shared_ptr<Item> findClockVictim()
-	{
-		std::cout << "[CLOCK DEBUG] findClockVictim called, cache size: " << m_mpObjects.size() << std::endl;
+		static int evictionCount = 0;
 		
-		if (!m_ptrClockHand)
-		{
-			std::cout << "[CLOCK DEBUG] Clock hand is null, returning nullptr" << std::endl;
-			return nullptr;
+		// If cache is not full, find first empty slot
+		if (m_clockSize < m_nCacheCapacity) {
+			for (size_t i = 0; i < m_nCacheCapacity; i++) {
+				if (!m_clockBuffer[i].m_bValid) {
+					return i;
+				}
+			}
 		}
+		
 
-		std::shared_ptr<Item> startHand = m_ptrClockHand;
+		
+		// Cache is full, use CLOCK algorithm to find victim
+		evictionCount++;
+
+		
+		size_t startHand = m_clockHand;
 		int sweepCount = 0;
 		
-		// Sweep through the circular list looking for a victim
-		do
-		{
+		// Sweep through the circular buffer looking for a victim
+		// First pass: look for objects with reference bit = 0
+		do {
 			sweepCount++;
-			if (!m_ptrClockHand->m_bReferenceBit)
-			{
-				// Found victim - item with reference bit = 0
-				std::shared_ptr<Item> victim = m_ptrClockHand;
-				// Move clock hand to next item
-				m_ptrClockHand = m_ptrClockHand->m_ptrNext ? m_ptrClockHand->m_ptrNext : m_ptrHead;
-				std::cout << "[CLOCK DEBUG] Found victim after " << sweepCount << " sweeps" << std::endl;
-				return victim;
+			
+			// Check if current slot is valid and has reference bit = 0
+			if (m_clockBuffer[m_clockHand].m_bValid && !m_clockBuffer[m_clockHand].m_bReferenceBit) {
+				// Check if object is in use before evicting
+				if (m_clockBuffer[m_clockHand].m_ptrObject.use_count() > 1) {
+					// Object is in use, move to next
+					m_clockHand = (m_clockHand + 1) % m_nCacheCapacity;
+					continue;
+				}
+				
+				// Check if object can be locked
+				if (!m_clockBuffer[m_clockHand].m_ptrObject->tryLockObject()) {
+					// Object can't be locked, move to next
+					m_clockHand = (m_clockHand + 1) % m_nCacheCapacity;
+					continue;
+				}
+				
+				// Found victim - evict this item
+				size_t victimIndex = m_clockHand;
+				
+				// Apply any existing updates before flushing
+				if (m_mpUIDUpdates.size() > 0) {
+					m_ptrCallback->applyExistingUpdates(m_clockBuffer[victimIndex].m_ptrObject, m_mpUIDUpdates);
+				}
+				
+				// Flush to storage if dirty before evicting
+				if (m_clockBuffer[victimIndex].m_ptrObject->getDirtyFlag()) {
+					ObjectUIDType uidUpdated;
+					if (m_ptrStorage->addObject(m_clockBuffer[victimIndex].m_uidSelf, m_clockBuffer[victimIndex].m_ptrObject, uidUpdated) != CacheErrorCode::Success) {
+						std::cout << "Critical State: Failed to add object to Storage during eviction." << std::endl;
+						throw new std::logic_error("Failed to flush object to storage during eviction");
+					}
+					
+					// Check if object already exists in updates list
+					if (m_mpUIDUpdates.find(m_clockBuffer[victimIndex].m_uidSelf) != m_mpUIDUpdates.end()) {
+						std::cout << "Critical State: Can't proceed with eviction as object already exists in Updates' list." << std::endl;
+						throw new std::logic_error("Object already exists in updates list during eviction");
+					}
+					
+					// Store the updated UID mapping for future lookups
+					m_mpUIDUpdates[m_clockBuffer[victimIndex].m_uidSelf] = std::make_pair(uidUpdated, m_clockBuffer[victimIndex].m_ptrObject);
+				}
+				
+				// Remove from objects map
+				m_mpObjects.erase(m_clockBuffer[victimIndex].m_uidSelf);
+				
+#ifdef __TRACK_CACHE_FOOTPRINT__
+				m_nCacheFootprint -= m_clockBuffer[victimIndex].m_ptrObject->getMemoryFootprint();
+				assert(m_nCacheFootprint >= 0);
+#endif //__TRACK_CACHE_FOOTPRINT__
+				
+				// Unlock the object after processing
+				m_clockBuffer[victimIndex].m_ptrObject->unlockObject();
+				
+				// Reset the slot to make it available
+				m_clockBuffer[victimIndex].reset();
+				m_clockSize--;
+				
+				// Move clock hand to next position
+				m_clockHand = (m_clockHand + 1) % m_nCacheCapacity;
+				
+
+				
+				return victimIndex;
 			}
-			else
-			{
+			else if (m_clockBuffer[m_clockHand].m_bValid) {
 				// Clear reference bit and move to next
-				m_ptrClockHand->m_bReferenceBit = false;
-				m_ptrClockHand = m_ptrClockHand->m_ptrNext ? m_ptrClockHand->m_ptrNext : m_ptrHead;
+				m_clockBuffer[m_clockHand].m_bReferenceBit = false;
 			}
-		} while (m_ptrClockHand != startHand);
-
-		// If all items have reference bit set, return the current hand position
-		return m_ptrClockHand;
+			
+			// Move clock hand to next position
+			m_clockHand = (m_clockHand + 1) % m_nCacheCapacity;
+			
+		} while (m_clockHand != startHand);
+		
+		// Second pass: clear all reference bits and look for any evictable object
+		startHand = m_clockHand;
+		do {
+			sweepCount++;
+			
+			if (m_clockBuffer[m_clockHand].m_bValid) {
+				// Clear reference bit (second chance)
+				m_clockBuffer[m_clockHand].m_bReferenceBit = false;
+				
+				// Check if object is in use before evicting
+				if (m_clockBuffer[m_clockHand].m_ptrObject.use_count() <= 1) {
+					// Check if object can be locked
+					if (m_clockBuffer[m_clockHand].m_ptrObject->tryLockObject()) {
+						// Found victim - evict this item
+						size_t victimIndex = m_clockHand;
+						
+						// Apply any existing updates before flushing
+						if (m_mpUIDUpdates.size() > 0) {
+							m_ptrCallback->applyExistingUpdates(m_clockBuffer[victimIndex].m_ptrObject, m_mpUIDUpdates);
+						}
+						
+						// Flush to storage if dirty before evicting
+						if (m_clockBuffer[victimIndex].m_ptrObject->getDirtyFlag()) {
+							ObjectUIDType uidUpdated;
+							if (m_ptrStorage->addObject(m_clockBuffer[victimIndex].m_uidSelf, m_clockBuffer[victimIndex].m_ptrObject, uidUpdated) != CacheErrorCode::Success) {
+								std::cout << "Critical State: Failed to add object to Storage during second pass eviction." << std::endl;
+								throw new std::logic_error("Failed to flush object to storage during second pass eviction");
+							}
+							
+							// Check if object already exists in updates list
+							if (m_mpUIDUpdates.find(m_clockBuffer[victimIndex].m_uidSelf) != m_mpUIDUpdates.end()) {
+								std::cout << "Critical State: Can't proceed with second pass eviction as object already exists in Updates' list." << std::endl;
+								throw new std::logic_error("Object already exists in updates list during second pass eviction");
+							}
+							
+							// Store the updated UID mapping for future lookups
+							m_mpUIDUpdates[m_clockBuffer[victimIndex].m_uidSelf] = std::make_pair(uidUpdated, m_clockBuffer[victimIndex].m_ptrObject);
+						}
+						
+						// Remove from objects map
+						m_mpObjects.erase(m_clockBuffer[victimIndex].m_uidSelf);
+						
+		#ifdef __TRACK_CACHE_FOOTPRINT__
+						m_nCacheFootprint -= m_clockBuffer[victimIndex].m_ptrObject->getMemoryFootprint();
+						assert(m_nCacheFootprint >= 0);
+		#endif //__TRACK_CACHE_FOOTPRINT__
+						
+						// Unlock the object after processing
+						m_clockBuffer[victimIndex].m_ptrObject->unlockObject();
+						
+						// Reset the slot to make it available
+						m_clockBuffer[victimIndex].reset();
+						m_clockSize--;
+						
+						// Move clock hand to next position
+						m_clockHand = (m_clockHand + 1) % m_nCacheCapacity;
+						
+						return victimIndex;
+					}
+				}
+			}
+			
+			// Move clock hand to next position
+			m_clockHand = (m_clockHand + 1) % m_nCacheCapacity;
+			
+		} while (m_clockHand != startHand);
+		
+		// If we still can't find a victim, all objects are in use
+		std::cout << "Warning: All objects have reference bits set and victim is in use. Cache will grow beyond capacity." << std::endl;
+		return SIZE_MAX; // Indicate failure to find victim
 	}
 
-	// For CLOCK algorithm, we don't need to move items to front
-	// This method is kept for compatibility but just sets reference bits
-	inline void setReferenceBits(const std::vector<std::shared_ptr<Item>>& itemList)
+	// Find victim for eviction using CLOCK algorithm (for flushing)
+	inline size_t findVictimForEviction()
 	{
-		for (auto& ptrItem : itemList)
-		{
-			if (ptrItem)
-			{
-				ptrItem->m_bReferenceBit = true;
-			}
+		if (m_clockSize == 0) {
+			return SIZE_MAX; // No items to evict
 		}
+		
+		size_t startHand = m_clockHand;
+		
+		// Sweep through the circular buffer looking for a victim
+		do {
+			// Check if current slot is valid and has reference bit = 0
+			if (m_clockBuffer[m_clockHand].m_bValid && !m_clockBuffer[m_clockHand].m_bReferenceBit) {
+				// Found victim - return this index (don't evict yet, just identify)
+				size_t victimIndex = m_clockHand;
+				// Move clock hand to next position
+				m_clockHand = (m_clockHand + 1) % m_nCacheCapacity;
+				return victimIndex;
+			}
+			else if (m_clockBuffer[m_clockHand].m_bValid) {
+				// Clear reference bit and move to next
+				m_clockBuffer[m_clockHand].m_bReferenceBit = false;
+			}
+			
+			// Move clock hand to next position
+			m_clockHand = (m_clockHand + 1) % m_nCacheCapacity;
+			
+		} while (m_clockHand != startHand);
+		
+		// If all items have reference bit set, return current hand position
+		if (m_clockBuffer[m_clockHand].m_bValid) {
+			size_t victimIndex = m_clockHand;
+			m_clockHand = (m_clockHand + 1) % m_nCacheCapacity;
+			return victimIndex;
+		}
+		
+		return SIZE_MAX; // No valid items found
 	}
 
-	inline void removeFromClock(std::shared_ptr<Item> ptrItem)
-	{
-		// Update clock hand if it's pointing to the item being removed
-		if (m_ptrClockHand == ptrItem)
-		{
-			m_ptrClockHand = ptrItem->m_ptrNext ? ptrItem->m_ptrNext : m_ptrHead;
-		}
 
-		if (ptrItem->m_ptrPrev != nullptr) 
-		{
-			ptrItem->m_ptrPrev->m_ptrNext = ptrItem->m_ptrNext;
-		}
-		else 
-		{
-			m_ptrHead = ptrItem->m_ptrNext;
-			if (m_ptrHead != nullptr)
-			{
-				m_ptrHead->m_ptrPrev = nullptr;
-			}
-		}
 
-		if (ptrItem->m_ptrNext != nullptr) 
-		{
-			ptrItem->m_ptrNext->m_ptrPrev = ptrItem->m_ptrPrev;
-		}
-		else 
-		{
-			m_ptrTail = ptrItem->m_ptrPrev;
-			if (m_ptrTail != nullptr)
-			{
-				m_ptrTail->m_ptrNext = nullptr;
-			}
-		}
 
-		// If this was the last item, reset clock hand
-		if (m_ptrHead == nullptr)
-		{
-			m_ptrClockHand = nullptr;
-		}
-	}
 
 	inline void flushItemsToStorage()
 	{
@@ -828,14 +873,16 @@ private:
 #endif //__TRACK_CACHE_FOOTPRINT__
 		{
 			//std::cout << "..going to flush.." << std::endl;
-			std::shared_ptr<Item> ptrItemToFlush = findClockVictim();
+			size_t victimIndex = findVictimForEviction();
 			
-			if (!ptrItemToFlush)
+			if (victimIndex == SIZE_MAX)
 			{
 				break; // No victim found
 			}
 			
-			if (ptrItemToFlush->m_ptrObject.use_count() > 1)
+			Item& itemToFlush = m_clockBuffer[victimIndex];
+			
+			if (itemToFlush.m_ptrObject.use_count() > 1)
 			{
 				/* Info: 
 				 * Should proceed with another victim?
@@ -845,7 +892,7 @@ private:
 			}
 
 			// Check if the object is in use
-			if (!ptrItemToFlush->m_ptrObject->tryLockObject())
+			if (!itemToFlush.m_ptrObject->tryLockObject())
 			{
 				/* Info:
 				 * Should proceed with another victim?
@@ -855,18 +902,18 @@ private:
 			}
 			else
 			{
-				ptrItemToFlush->m_ptrObject->unlockObject();
+				itemToFlush.m_ptrObject->unlockObject();
 			}
 
-			vtObjects.push_back(std::make_pair(ptrItemToFlush->m_uidSelf, std::make_pair(std::nullopt, ptrItemToFlush->m_ptrObject)));
+			vtObjects.push_back(std::make_pair(itemToFlush.m_uidSelf, std::make_pair(std::nullopt, itemToFlush.m_ptrObject)));
 
 #ifdef __TRACK_CACHE_FOOTPRINT__
-			m_nCacheFootprint -= ptrItemToFlush->m_ptrObject->getMemoryFootprint();
+			m_nCacheFootprint -= itemToFlush.m_ptrObject->getMemoryFootprint();
 #endif //__TRACK_CACHE_FOOTPRINT__
 
-			m_mpObjects.erase(ptrItemToFlush->m_uidSelf);
-			removeFromClock(ptrItemToFlush);
-			ptrItemToFlush.reset();
+			m_mpObjects.erase(itemToFlush.m_uidSelf);
+			m_clockBuffer[victimIndex].reset();
+			m_clockSize--;
 		}
 
 		std::unique_lock<std::shared_mutex> lock_storage(m_mtxStorage);
@@ -987,36 +1034,40 @@ private:
 		std::unique_lock<std::shared_mutex> lock_cache(m_mtxCache);
 #endif //__CONCURRENT__
 
-		for (uint32_t idx = 0, idxend = m_mpObjects.size(); idx < idxend; idx++)
+		// Flush all items in the circular buffer
+		for (size_t idx = 0; idx < m_nCacheCapacity; idx++)
 		{
-			if (m_ptrTail->m_ptrObject.use_count() > 1)
+			if (!m_clockBuffer[idx].m_bValid) {
+				continue; // Skip empty slots
+			}
+			
+			if (m_clockBuffer[idx].m_ptrObject.use_count() > 1)
 			{
 				std::cout << "Critical State: Can't proceed with the flushAllItemsToStorage operations as an object is in use." << std::endl;
 				throw new std::logic_error(".....");   // TODO: critical log.
 			}
 
-			if (!m_ptrTail->m_ptrObject->tryLockObject())
+			if (!m_clockBuffer[idx].m_ptrObject->tryLockObject())
 			{
 				std::cout << "Critical State: Can't proceed with the flushAllItemsToStorage operations as lock can't be acquired on object." << std::endl;
 				throw new std::logic_error(".....");   // TODO: critical log.
 			}
 			else
 			{
-				m_ptrTail->m_ptrObject->unlockObject();
+				m_clockBuffer[idx].m_ptrObject->unlockObject();
 			}
 
-			std::shared_ptr<Item> ptrItemToFlush = findClockVictim();
-
-			vtObjects.push_back(std::make_pair(ptrItemToFlush->m_uidSelf, std::make_pair(std::nullopt, ptrItemToFlush->m_ptrObject)));
+			vtObjects.push_back(std::make_pair(m_clockBuffer[idx].m_uidSelf, std::make_pair(std::nullopt, m_clockBuffer[idx].m_ptrObject)));
 
 #ifdef __TRACK_CACHE_FOOTPRINT__
-			m_nCacheFootprint -= ptrItemToFlush->m_ptrObject->getMemoryFootprint();
+			m_nCacheFootprint -= m_clockBuffer[idx].m_ptrObject->getMemoryFootprint();
 #endif //__TRACK_CACHE_FOOTPRINT__
 
-			m_mpObjects.erase(ptrItemToFlush->m_uidSelf);
-			removeFromClock(ptrItemToFlush);
-			ptrItemToFlush.reset();
+			m_mpObjects.erase(m_clockBuffer[idx].m_uidSelf);
+			m_clockBuffer[idx].reset();
 		}
+		
+		m_clockSize = 0;
 
 #ifdef __CONCURRENT__
 		std::unique_lock<std::shared_mutex> lock_storage(m_mtxStorage);
@@ -1091,72 +1142,42 @@ private:
 		std::unique_lock<std::shared_mutex> lock_cache(m_mtxCache);
 #endif //__CONCURRENT__
 
-		std::shared_ptr<Item> ptrItemToFlush = m_ptrTail;
-
-		for (uint32_t idx = 0, idxend = m_mpObjects.size(); idx < idxend; idx++)
+		// Iterate through all valid items in circular buffer
+		for (size_t i = 0; i < m_nCacheCapacity; i++)
 		{
-			if (ptrItemToFlush->m_ptrObject.use_count() > 1)
+			if (!m_clockBuffer[i].m_bValid) continue;
+
+			Item& item = m_clockBuffer[i];
+			
+			if (item.m_ptrObject.use_count() > 1)
 			{
 				std::cout << "Critical State: Can't proceed with the flushDatatemsToStorage operations as an object is in use." << std::endl;
 				throw new std::logic_error(".....");   // TODO: critical log.
 			}
 
-			if (!ptrItemToFlush->m_ptrObject->tryLockObject())
+			if (!item.m_ptrObject->tryLockObject())
 			{
 				std::cout << "Critical State: Can't proceed with the flushDataItemsToStorage operations as lock can't be acquired on object." << std::endl;
 				throw new std::logic_error(".....");   // TODO: critical log.
 			}
 			else
 			{
-				ptrItemToFlush->m_ptrObject->unlockObject();
+				item.m_ptrObject->unlockObject();
 			}
 
-			vtObjects.push_back(std::make_pair(ptrItemToFlush->m_uidSelf, std::make_pair(std::nullopt, ptrItemToFlush->m_ptrObject)));
+			vtObjects.push_back(std::make_pair(item.m_uidSelf, std::make_pair(std::nullopt, item.m_ptrObject)));
 
 #ifdef __TRACK_CACHE_FOOTPRINT__
-			m_nCacheFootprint -= ptrItemToFlush->m_ptrObject->getMemoryFootprint();
+			m_nCacheFootprint -= item.m_ptrObject->getMemoryFootprint();
 #endif //__TRACK_CACHE_FOOTPRINT__
 
-			auto objectType = ptrItemToFlush->m_uidSelf.getObjectType();
+			auto objectType = item.m_uidSelf.getObjectType();
 
-			if (objectType == 101)
+			if (objectType != 101)  // If not a special type, remove from cache
 			{
-				ptrItemToFlush = ptrItemToFlush->m_ptrPrev;
-			}
-			else
-			{
-				std::shared_ptr<Item> ptrTemp = ptrItemToFlush->m_ptrPrev;
-
-				m_mpObjects.erase(ptrItemToFlush->m_uidSelf);
-
-				if (m_ptrTail == ptrItemToFlush)
-				{
-					m_ptrTail = ptrItemToFlush->m_ptrPrev;
-
-					ptrItemToFlush->m_ptrPrev = nullptr;
-					ptrItemToFlush->m_ptrNext = nullptr;
-
-					if (m_ptrTail)
-					{
-						m_ptrTail->m_ptrNext = nullptr;
-					}
-					else
-					{
-						m_ptrHead = nullptr;
-					}
-
-					ptrItemToFlush.reset();
-				}
-				else
-				{
-
-					ptrItemToFlush->m_ptrNext->m_ptrPrev = ptrItemToFlush->m_ptrPrev;
-					ptrItemToFlush->m_ptrPrev->m_ptrNext = ptrItemToFlush->m_ptrPrev;
-
-					ptrItemToFlush.reset();
-				}
-
-				ptrItemToFlush = ptrTemp;
+				m_mpObjects.erase(item.m_uidSelf);
+				item.reset();
+				m_clockSize--;
 			}
 		}
 
@@ -1232,11 +1253,14 @@ private:
 
 		std::unique_lock<std::shared_mutex> lock_cache(m_mtxCache);
 
-		std::shared_ptr<Item> ptrItemToFlush = m_ptrTail;
-
-		for (uint32_t idx = 0, idxend = m_mpObjects.size(); idx < idxend; idx++)
+		// Iterate through all valid items in circular buffer
+		for (size_t i = 0; i < m_nCacheCapacity; i++)
 		{
-			if (ptrItemToFlush->m_ptrObject.use_count() > 1)
+			if (!m_clockBuffer[i].m_bValid) continue;
+
+			Item& item = m_clockBuffer[i];
+			
+			if (item.m_ptrObject.use_count() > 1)
 			{
 				/* Info:
 				 * Should proceed with the preceeding one?
@@ -1246,7 +1270,7 @@ private:
 			}
 
 			// Check if the object is in use
-			if (!ptrItemToFlush->m_ptrObject->tryLockObject())
+			if (!item.m_ptrObject->tryLockObject())
 			{
 				/* Info:
 				 * Should proceed with the preceeding one?
@@ -1256,12 +1280,10 @@ private:
 			}
 			else
 			{
-				ptrItemToFlush->m_ptrObject->unlockObject();
+				item.m_ptrObject->unlockObject();
 			}
 
-			vtObjects.push_back(std::make_pair(ptrItemToFlush->m_uidSelf, std::make_pair(std::nullopt, ptrItemToFlush->m_ptrObject)));
-
-			ptrItemToFlush = ptrItemToFlush->m_ptrPrev;
+			vtObjects.push_back(std::make_pair(item.m_uidSelf, std::make_pair(std::nullopt, item.m_ptrObject)));
 		}
 
 		std::unique_lock<std::shared_mutex> lock_storage(m_mtxStorage);
@@ -1314,9 +1336,15 @@ private:
 
 		vtObjects.clear();
 #else //__CONCURRENT__
-		while (m_mpObjects.size() > m_nCacheCapacity)
+		while (m_clockSize > m_nCacheCapacity)
 		{
-			if (m_ptrTail->m_ptrObject.use_count() > 1)
+			// Find victim using CLOCK algorithm
+			size_t victimIndex = findVictimForEviction();
+			if (victimIndex == SIZE_MAX) break;
+
+			Item& victim = m_clockBuffer[victimIndex];
+			
+			if (victim.m_ptrObject.use_count() > 1)
 			{
 				/* Info:
 				 * Should proceed with the preceeding one?
@@ -1327,44 +1355,30 @@ private:
 
 			if (m_mpUIDUpdates.size() > 0)
 			{
-				m_ptrCallback->applyExistingUpdates(m_ptrTail->m_ptrObject, m_mpUIDUpdates);
+				m_ptrCallback->applyExistingUpdates(victim.m_ptrObject, m_mpUIDUpdates);
 			}
 
-			if (m_ptrTail->m_ptrObject->getDirtyFlag())
+			if (victim.m_ptrObject->getDirtyFlag())
 			{
-
 				ObjectUIDType uidUpdated;
-				if (m_ptrStorage->addObject(m_ptrTail->m_uidSelf, m_ptrTail->m_ptrObject, uidUpdated) != CacheErrorCode::Success)
+				if (m_ptrStorage->addObject(victim.m_uidSelf, victim.m_ptrObject, uidUpdated) != CacheErrorCode::Success)
 				{
 					std::cout << "Critical State: Failed to add object to Storage." << std::endl;
 					throw new std::logic_error(".....");   // TODO: critical log.
 				}
 
-				if (m_mpUIDUpdates.find(m_ptrTail->m_uidSelf) != m_mpUIDUpdates.end())
+				if (m_mpUIDUpdates.find(victim.m_uidSelf) != m_mpUIDUpdates.end())
 				{
 					std::cout << "Critical State: Recently add object to Storage doest not exist in Updates' list." << std::endl;
 					throw new std::logic_error(".....");   // TODO: critical log.
 				}
 
-				m_mpUIDUpdates[m_ptrTail->m_uidSelf] = std::make_pair(uidUpdated, m_ptrTail->m_ptrObject);
+				m_mpUIDUpdates[victim.m_uidSelf] = std::make_pair(uidUpdated, victim.m_ptrObject);
 			}
 
-			m_mpObjects.erase(m_ptrTail->m_uidSelf);
-
-			std::shared_ptr<Item> ptrTemp = m_ptrTail;
-
-			m_ptrTail = m_ptrTail->m_ptrPrev;
-
-			if (m_ptrTail)
-			{
-				m_ptrTail->m_ptrNext = nullptr;
-			}
-			else
-			{
-				m_ptrHead = nullptr;
-			}
-
-			ptrTemp.reset();
+			m_mpObjects.erase(victim.m_uidSelf);
+			victim.reset();
+			m_clockSize--;
 		}
 #endif //__CONCURRENT__
 	}

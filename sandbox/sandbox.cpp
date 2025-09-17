@@ -30,9 +30,17 @@
 #include "SSARCCache.hpp"
 #include "SSARCCacheObject.hpp"
 #include <string>
+#include <fstream>
+#include <iomanip>
+#include <sstream>
 
 
 #define __VALIDITY_CHECK__
+
+// Forward declarations of helper functions
+std::string getCurrentTimestamp();
+void saveTestData(const std::vector<int>& data, const std::string& filename);
+bool loadTestData(std::vector<int>& data, const std::string& filename);
 
 #ifdef _MSC_VER
 #define FILE_STORAGE_PATH "c:\\filestore.hdb"
@@ -46,15 +54,9 @@
 
 #ifdef __CONCURRENT__
 template <typename BPlusStoreType>
-void insert_concurent(BPlusStoreType* ptrTree, int nRangeStart, int nRangeEnd)
+void insert_concurent(BPlusStoreType* ptrTree, const std::vector<int>& random_numbers, int nRangeStart, int nRangeEnd)
 {
-    std::vector<int> random_numbers(nRangeEnd - nRangeStart);//50000000);
-    std::iota(random_numbers.begin(), random_numbers.end(), nRangeStart); // Fill vector with 1 to 5,000,000
-    std::random_device rd; // Obtain a random number from hardware
-    std::mt19937 eng(rd()); // Seed the generator
-    std::shuffle(random_numbers.begin(), random_numbers.end(), eng);
-
-    for (size_t nCntr = 0; nCntr < nRangeEnd - nRangeStart; nCntr++)
+    for (size_t nCntr = nRangeStart; nCntr < nRangeEnd; nCntr++)
     {
         ErrorCode ec = ptrTree->insert(random_numbers[nCntr], random_numbers[nCntr]);
         assert(ec == ErrorCode::Success);
@@ -72,15 +74,9 @@ void reverse_insert_concurent(BPlusStoreType* ptrTree, int nRangeStart, int nRan
 }
 
 template <typename BPlusStoreType>
-void search_concurent(BPlusStoreType* ptrTree, int nRangeStart, int nRangeEnd)
+void search_concurent(BPlusStoreType* ptrTree, const std::vector<int>& random_numbers, int nRangeStart, int nRangeEnd)
 {
-    std::vector<int> random_numbers(nRangeEnd - nRangeStart);//50000000);
-    std::iota(random_numbers.begin(), random_numbers.end(), nRangeStart); // Fill vector with 1 to 5,000,000
-    std::random_device rd; // Obtain a random number from hardware
-    std::mt19937 eng(rd()); // Seed the generator
-    std::shuffle(random_numbers.begin(), random_numbers.end(), eng);
-
-    for (size_t nCntr = 0; nCntr < nRangeEnd - nRangeStart; nCntr++)
+    for (size_t nCntr = nRangeStart; nCntr < nRangeEnd; nCntr++)
     {
         int nValue = 0;
         ErrorCode ec = ptrTree->search(random_numbers[nCntr], nValue);
@@ -90,25 +86,19 @@ void search_concurent(BPlusStoreType* ptrTree, int nRangeStart, int nRangeEnd)
 }
 
 template <typename BPlusStoreType>
-void search_not_found_concurent(BPlusStoreType* ptrTree, int nRangeStart, int nRangeEnd) {
+void search_not_found_concurent(BPlusStoreType* ptrTree, const std::vector<int>& random_numbers, int nRangeStart, int nRangeEnd) {
     for (size_t nCntr = nRangeStart; nCntr < nRangeEnd; nCntr++)
     {
         int nValue = 0;
-        ErrorCode ec = ptrTree->search(nCntr, nValue);
+        ErrorCode ec = ptrTree->search(random_numbers[nCntr], nValue);
 
         assert(ec == ErrorCode::KeyDoesNotExist);
     }
 }
 
 template <typename BPlusStoreType>
-void delete_concurent(BPlusStoreType* ptrTree, int nRangeStart, int nRangeEnd) {
-    std::vector<int> random_numbers(nRangeEnd - nRangeStart);//50000000);
-    std::iota(random_numbers.begin(), random_numbers.end(), nRangeStart); // Fill vector with 1 to 5,000,000
-    std::random_device rd; // Obtain a random number from hardware
-    std::mt19937 eng(rd()); // Seed the generator
-    std::shuffle(random_numbers.begin(), random_numbers.end(), eng);
-
-    for (size_t nCntr = 0; nCntr < nRangeEnd - nRangeStart; nCntr++)
+void delete_concurent(BPlusStoreType* ptrTree, const std::vector<int>& random_numbers, int nRangeStart, int nRangeEnd) {
+    for (size_t nCntr = nRangeStart; nCntr < nRangeEnd; nCntr++)
     {
         ErrorCode ec = ptrTree->remove(random_numbers[nCntr]);
 
@@ -130,6 +120,18 @@ template <typename BPlusStoreType>
 void threaded_test(BPlusStoreType* ptrTree, int degree, int total_entries, int thread_count)
 {
     vector<std::thread> vtThreads;
+    
+    // Generate test data for threaded test
+    std::vector<int> random_numbers(total_entries);
+    std::iota(random_numbers.begin(), random_numbers.end(), 0); // Fill vector with 0 to total_entries-1
+    
+    std::random_device rd;
+    std::mt19937 eng(rd());
+    std::shuffle(random_numbers.begin(), random_numbers.end(), eng);
+    
+    // Save threaded test data
+    std::string threadedDataFilename = "threaded_test_data_" + getCurrentTimestamp() + "_" + std::to_string(total_entries) + ".txt";
+    saveTestData(random_numbers, threadedDataFilename);
 
     std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 
@@ -138,7 +140,7 @@ void threaded_test(BPlusStoreType* ptrTree, int degree, int total_entries, int t
         for (int nIdx = 0; nIdx < thread_count; nIdx++)
         {
             int nTotal = total_entries / thread_count;
-            vtThreads.push_back(std::thread(insert_concurent<BPlusStoreType>, ptrTree, nIdx * nTotal, nIdx * nTotal + nTotal));
+            vtThreads.push_back(std::thread(insert_concurent<BPlusStoreType>, ptrTree, std::cref(random_numbers), nIdx * nTotal, nIdx * nTotal + nTotal));
         }
 
         auto it = vtThreads.begin();
@@ -153,7 +155,7 @@ void threaded_test(BPlusStoreType* ptrTree, int degree, int total_entries, int t
         for (int nIdx = 0; nIdx < thread_count; nIdx++)
         {
             int nTotal = total_entries / thread_count;
-            vtThreads.push_back(std::thread(search_concurent<BPlusStoreType>, ptrTree, nIdx * nTotal, nIdx * nTotal + nTotal));
+            vtThreads.push_back(std::thread(search_concurent<BPlusStoreType>, ptrTree, std::cref(random_numbers), nIdx * nTotal, nIdx * nTotal + nTotal));
         }
 
         it = vtThreads.begin();
@@ -168,7 +170,7 @@ void threaded_test(BPlusStoreType* ptrTree, int degree, int total_entries, int t
         for (int nIdx = 0; nIdx < thread_count; nIdx++)
         {
             int nTotal = total_entries / thread_count;
-            vtThreads.push_back(std::thread(delete_concurent<BPlusStoreType>, ptrTree, nIdx * nTotal, nIdx * nTotal + nTotal));
+            vtThreads.push_back(std::thread(delete_concurent<BPlusStoreType>, ptrTree, std::cref(random_numbers), nIdx * nTotal, nIdx * nTotal + nTotal));
         }   
 
         it = vtThreads.begin();
@@ -183,7 +185,7 @@ void threaded_test(BPlusStoreType* ptrTree, int degree, int total_entries, int t
         for (int nIdx = 0; nIdx < thread_count; nIdx++)
         {
             int nTotal = total_entries / thread_count;
-            vtThreads.push_back(std::thread(search_not_found_concurent<BPlusStoreType>, ptrTree, nIdx * nTotal, nIdx * nTotal + nTotal));
+            vtThreads.push_back(std::thread(search_not_found_concurent<BPlusStoreType>, ptrTree, std::cref(random_numbers), nIdx * nTotal, nIdx * nTotal + nTotal));
         }
 
         it = vtThreads.begin();
@@ -215,13 +217,25 @@ template <typename BPlusStoreType>
 void fptree_threaded_test(BPlusStoreType* ptrTree, int total_entries, int thread_count)
 {
     vector<std::thread> vtThreads;
+    
+    // Generate test data for fptree threaded test
+    std::vector<int> random_numbers(total_entries);
+    std::iota(random_numbers.begin(), random_numbers.end(), 0);
+    
+    std::random_device rd;
+    std::mt19937 eng(rd());
+    std::shuffle(random_numbers.begin(), random_numbers.end(), eng);
+    
+    // Save fptree test data
+    std::string fptreeDataFilename = "fptree_test_data_" + getCurrentTimestamp() + "_" + std::to_string(total_entries) + ".txt";
+    saveTestData(random_numbers, fptreeDataFilename);
 
     std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 
     for (int nIdx = 0; nIdx < thread_count; nIdx++)
     {
         int nTotal = total_entries / thread_count;
-        vtThreads.push_back(std::thread(insert_concurent<BPlusStoreType>, ptrTree, nIdx * nTotal, nIdx * nTotal + nTotal));
+        vtThreads.push_back(std::thread(insert_concurent<BPlusStoreType>, ptrTree, std::cref(random_numbers), nIdx * nTotal, nIdx * nTotal + nTotal));
     }
 
     auto it = vtThreads.begin();
@@ -249,7 +263,7 @@ void fptree_threaded_test(BPlusStoreType* ptrTree, int total_entries, int thread
     for (int nIdx = 0; nIdx < thread_count; nIdx++)
     {
         int nTotal = total_entries / thread_count;
-        vtThreads.push_back(std::thread(search_concurent<BPlusStoreType>, ptrTree, nIdx * nTotal, nIdx * nTotal + nTotal));
+        vtThreads.push_back(std::thread(search_concurent<BPlusStoreType>, ptrTree, std::cref(random_numbers), nIdx * nTotal, nIdx * nTotal + nTotal));
     }
 
     it = vtThreads.begin();
@@ -275,7 +289,7 @@ void fptree_threaded_test(BPlusStoreType* ptrTree, int total_entries, int thread
     for (int nIdx = 0; nIdx < thread_count; nIdx++)
     {
         int nTotal = total_entries / thread_count;
-        vtThreads.push_back(std::thread(delete_concurent<BPlusStoreType>, ptrTree, nIdx * nTotal, nIdx * nTotal + nTotal));
+        vtThreads.push_back(std::thread(delete_concurent<BPlusStoreType>, ptrTree, std::cref(random_numbers), nIdx * nTotal, nIdx * nTotal + nTotal));
     }
 
     it = vtThreads.begin();
@@ -303,15 +317,81 @@ void fptree_threaded_test(BPlusStoreType* ptrTree, int total_entries, int thread
 }
 #endif //__CONCURRENT__
 
+// Helper function to generate timestamp for filename
+std::string getCurrentTimestamp() {
+    auto now = std::chrono::system_clock::now();
+    auto time_t = std::chrono::system_clock::to_time_t(now);
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now.time_since_epoch()) % 1000;
+    
+    std::stringstream ss;
+    ss << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S");
+    ss << "_" << std::setfill('0') << std::setw(3) << ms.count();
+    return ss.str();
+}
+
+// Helper function to save test data to file
+void saveTestData(const std::vector<int>& data, const std::string& filename) {
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Error: Could not open file " << filename << " for writing" << std::endl;
+        return;
+    }
+    
+    file << data.size() << std::endl;
+    for (const auto& value : data) {
+        file << value << std::endl;
+    }
+    file.close();
+    std::cout << "Test data saved to: " << filename << std::endl;
+}
+
+// Helper function to load test data from file
+bool loadTestData(std::vector<int>& data, const std::string& filename) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Error: Could not open file " << filename << " for reading" << std::endl;
+        return false;
+    }
+    
+    size_t size;
+    file >> size;
+    data.resize(size);
+    
+    for (size_t i = 0; i < size; ++i) {
+        file >> data[i];
+    }
+    file.close();
+    std::cout << "Test data loaded from: " << filename << " (size: " << size << ")" << std::endl;
+    return true;
+}
+
 template <typename BPlusStoreType>
 void int_test(BPlusStoreType* ptrTree, size_t nMaxNumber)
 {
-    std::vector<int> random_numbers(nMaxNumber);//50000000);
-    std::iota(random_numbers.begin(), random_numbers.end(), 1); // Fill vector with 1 to 5,000,000
-
+    std::vector<int> random_numbers(nMaxNumber);
+    
+    // Generate filename with timestamp
+    std::string dataFilename = "test_data_" + getCurrentTimestamp() + "_" + std::to_string(nMaxNumber) + ".txt";
+    
+    // Option to hardcode a specific filename for debugging (uncomment and modify as needed)
+    // To use a specific test data file, uncomment the next 4 lines and comment out the generation section
+    // std::string hardcodedFilename = "test_data_20250917_194215_819_100000.txt";
+    // if (loadTestData(random_numbers, hardcodedFilename)) {
+    //     std::cout << "Using hardcoded test data from: " << hardcodedFilename << std::endl;
+    // } else {
+    
+    // Always generate new random data (comment this section if using hardcoded file above)
+    std::iota(random_numbers.begin(), random_numbers.end(), 1); // Fill vector with 1 to nMaxNumber
+    
     std::random_device rd; // Obtain a random number from hardware
     std::mt19937 eng(rd()); // Seed the generator
     std::shuffle(random_numbers.begin(), random_numbers.end(), eng);
+    
+    // Save the generated data
+    saveTestData(random_numbers, dataFilename);
+    std::cout << "Generated new test data and saved to: " << dataFilename << std::endl;
+    // } // Uncomment this if using hardcoded file above
 
     std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 
@@ -525,7 +605,7 @@ void string_test(BPlusStoreType* ptrTree, int degree, int total_entries)
 
 void test_for_ints()
 {
-    for( size_t nDegree = 1000; nDegree < 2000; nDegree = nDegree + 200)
+    for( size_t nDegree = 32; nDegree < 256; nDegree = nDegree + 32)
     {
         std::cout << "||||||| Running 'test_for_ints' for nDegree:" << nDegree << std::endl;
         

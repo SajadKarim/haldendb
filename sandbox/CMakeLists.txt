@@ -29,11 +29,12 @@ set(CMAKE_CXX_COMPILER g++-11)
 add_executable(sandbox sandbox.cpp)
 
 
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(LIBPMEM REQUIRED libpmem)
+# libpmem dependency removed - using VolatileStorage only
+# find_package(PkgConfig REQUIRED)
+# pkg_check_modules(LIBPMEM REQUIRED libpmem)
 
-target_link_libraries(sandbox PRIVATE ${LIBPMEM_LIBRARIES})
-target_include_directories(sandbox PRIVATE ${LIBPMEM_INCLUDE_DIRS})
+# target_link_libraries(sandbox PRIVATE ${LIBPMEM_LIBRARIES})
+# target_include_directories(sandbox PRIVATE ${LIBPMEM_INCLUDE_DIRS})
 #add_executable(sandbox sandbox.cpp)
 
 set_target_properties(sandbox PROPERTIES
