@@ -973,55 +973,50 @@ private:
 #else //__CONCURRENT__
 		while (m_mpObjects.size() > m_nCacheCapacity)
 		{
-			if (m_ptrTail->m_ptrObject.use_count() > 1)
+			size_t victimIndex = findVictimForEviction();
+			
+			if (victimIndex == SIZE_MAX)
+			{
+				break; // No victim found
+			}
+			
+			Item& itemToFlush = m_clockBuffer[victimIndex];
+			
+			if (itemToFlush.m_ptrObject.use_count() > 1)
 			{
 				/* Info:
-				 * Should proceed with the preceeding one?
-				 * But since each operation reorders the items at the end, therefore, the prceeding items would be in use as well!
+				 * Should proceed with another victim?
+				 * For now, we break to avoid infinite loops
 				 */
 				break;
 			}
 
 			if (m_mpUIDUpdates.size() > 0)
 			{
-				m_ptrCallback->applyExistingUpdates(m_ptrTail->m_ptrObject, m_mpUIDUpdates);
+				m_ptrCallback->applyExistingUpdates(itemToFlush.m_ptrObject, m_mpUIDUpdates);
 			}
 
-			if (m_ptrTail->m_ptrObject->getDirtyFlag())
+			if (itemToFlush.m_ptrObject->getDirtyFlag())
 			{
-
 				ObjectUIDType uidUpdated;
-				if (m_ptrStorage->addObject(m_ptrTail->m_uidSelf, m_ptrTail->m_ptrObject, uidUpdated) != CacheErrorCode::Success)
+				if (m_ptrStorage->addObject(itemToFlush.m_uidSelf, itemToFlush.m_ptrObject, uidUpdated) != CacheErrorCode::Success)
 				{
 					std::cout << "Critical State: Failed to add object to Storage." << std::endl;
 					throw new std::logic_error(".....");   // TODO: critical log.
 				}
 
-				if (m_mpUIDUpdates.find(m_ptrTail->m_uidSelf) != m_mpUIDUpdates.end())
+				if (m_mpUIDUpdates.find(itemToFlush.m_uidSelf) != m_mpUIDUpdates.end())
 				{
 					std::cout << "Critical State: Can't proceed with the flushItemsToStorage operations as object already exists in Updates' list." << std::endl;
 					throw new std::logic_error(".....");   // TODO: critical log.
 				}
 
-				m_mpUIDUpdates[m_ptrTail->m_uidSelf] = std::make_pair(uidUpdated, m_ptrTail->m_ptrObject);
+				m_mpUIDUpdates[itemToFlush.m_uidSelf] = std::make_pair(uidUpdated, itemToFlush.m_ptrObject);
 			}
 
-			m_mpObjects.erase(m_ptrTail->m_uidSelf);
-
-			std::shared_ptr<Item> ptrTemp = m_ptrTail;
-
-			m_ptrTail = m_ptrTail->m_ptrPrev;
-
-			if (m_ptrTail)
-			{
-				m_ptrTail->m_ptrNext = nullptr;
-			}
-			else
-			{
-				m_ptrHead = nullptr;
-			}
-
-			ptrTemp.reset();
+			m_mpObjects.erase(itemToFlush.m_uidSelf);
+			m_clockBuffer[victimIndex].reset();
+			m_clockSize--;
 		}
 #endif //__CONCURRENT__
 	}
