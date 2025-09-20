@@ -25,7 +25,7 @@ echo "=========================================="
 # Cache-specific configuration arrays
 CACHE_TYPES=("LRU" "SSARC" "CLOCK")  # CLOCK cache now enabled and fixed
 STORAGE_TYPES=("VolatileStorage")
-CACHE_SIZE_PERCENTAGES=("5%" "10%" "20%")  # Cache sizes as percentages of estimated B+ tree pages
+CACHE_SIZE_PERCENTAGES=("5%")  # Cache sizes as percentages of estimated B+ tree pages
 PAGE_SIZES=(4096)
 MEMORY_SIZES=(1073741824)  # 1GB default
 
@@ -36,14 +36,17 @@ TREES=("BPlusStore")
 DEGREES=(64)
 
 # Operations to profile
-OPERATIONS=("insert" "search_random" "search_sequential" "search_uniform" "search_zipfian" "delete")
+OPERATIONS=("insert" "search_random")
 
 # Key-Value type combinations
 declare -A KEY_VALUE_COMBOS
-KEY_VALUE_COMBOS["int_int"]="int int"
+#KEY_VALUE_COMBOS["int_int"]="int int"
+KEY_VALUE_COMBOS["uint64_t_uint64_t"]="uint64_t uint64_t"
+#KEY_VALUE_COMBOS["char16_char16"]="char16 char16"
+#KEY_VALUE_COMBOS["uint64_t_char16"]="uint64_t char16"
 
 # Record count for profiling
-RECORDS=(100000 500000)
+RECORDS=(500000)
 RUNS=${RUNS:-1}  # Default to 3, but allow override via environment variable
 THREADS=(4)
 
@@ -203,6 +206,10 @@ run_cache_profiled_benchmark() {
         local target_csv="$run_folder/${config_name}_${profile_name}.csv"
         mv "$latest_csv" "$target_csv"
         echo "CSV file renamed to: $(basename "$target_csv")"
+    else
+        echo "WARNING: No CSV file found in $run_folder with pattern benchmark_*.csv"
+        echo "Checking for any CSV files in the directory:"
+        ls -la "$run_folder"/*.csv 2>/dev/null || echo "No CSV files found at all"
     fi
     
     echo "BPlusStore cache profiling completed for $profile_name"
@@ -330,7 +337,7 @@ run_full_cache_profiling_with_params() {
 run_full_cache_profiling_single_threaded() {
     # Create a local single-threaded array
     local SINGLE_THREADS=(1)
-    local CACHE_TYPES_LOCAL=("CLOCK")
+    local CACHE_TYPES_LOCAL=("LRU" "SSARC" "CLOCK")  # Test all cache types
 
     echo "Running single-threaded BPlusStore cache profiling..."
     echo "Using cache types: ${CACHE_TYPES_LOCAL[*]}"
@@ -344,7 +351,7 @@ run_full_cache_profiling_multi_threaded() {
     echo "Running multi-threaded BPlusStore cache profiling..."
     echo "Using threads: ${THREADS[*]}"
     
-    local CACHE_TYPES_LOCAL=("LRU" "SSARC" "CLOCK")
+    local CACHE_TYPES_LOCAL=("LRU")
     echo "Using cache types: ${CACHE_TYPES_LOCAL[*]}"
     
     local config_type="concurrent_default"    
@@ -500,6 +507,75 @@ analyze_cache_results() {
     echo "BPlusStore cache performance analysis completed. Summary saved to: $summary_file"
 }
 
+# Function to merge all CSV files from benchmark runs into a single combined CSV file
+merge_csv_files() {
+    echo "=========================================="
+    echo "Merging all CSV files from benchmark runs"
+    echo "=========================================="
+    
+    # Create combined CSV file with timestamp
+    local merge_timestamp=$(date +"%Y%m%d_%H%M%S")
+    local combined_csv="$PROFILE_OUTPUT_DIR/combined_benchmark_results_${merge_timestamp}.csv"
+    
+    # Initialize header written flag
+    local header_written=false
+    local total_files=0
+    local processed_files=0
+    
+    # Count total CSV files first
+    echo "Scanning for CSV files in: $PROFILE_OUTPUT_DIR"
+    for csv_file in "$PROFILE_OUTPUT_DIR"/*/*.csv; do
+        if [ -f "$csv_file" ]; then
+            ((total_files++))
+        fi
+    done
+    
+    if [ $total_files -eq 0 ]; then
+        echo "No CSV files found in $PROFILE_OUTPUT_DIR"
+        echo "Make sure benchmark runs have completed successfully."
+        return 1
+    fi
+    
+    echo "Found $total_files CSV files to merge"
+    echo "Combined file will be saved as: $combined_csv"
+    echo ""
+    
+    # Process each CSV file
+    for csv_file in "$PROFILE_OUTPUT_DIR"/*/*.csv; do
+        if [ -f "$csv_file" ]; then
+            ((processed_files++))
+            local folder_name=$(basename "$(dirname "$csv_file")")
+            echo "Processing [$processed_files/$total_files]: $folder_name"
+            
+            if [ "$header_written" = false ]; then
+                # Write header from first file
+                head -n 1 "$csv_file" > "$combined_csv"
+                header_written=true
+                echo "  Header written from first file"
+            fi
+            
+            # Append data lines (skip header)
+            tail -n +2 "$csv_file" >> "$combined_csv"
+            echo "  Data appended"
+        fi
+    done
+    
+    # Count total lines in combined file
+    local total_lines=$(wc -l < "$combined_csv")
+    local data_lines=$((total_lines - 1))  # Subtract header line
+    
+    echo ""
+    echo "=========================================="
+    echo "CSV Merge Completed Successfully!"
+    echo "=========================================="
+    echo "Files processed: $processed_files"
+    echo "Combined file: $combined_csv"
+    echo "Total lines: $total_lines (1 header + $data_lines data lines)"
+    echo "=========================================="
+    
+    return 0
+}
+
 # Function to show usage
 show_usage() {
     echo "Usage: $0 [COMMAND] [OPTIONS]"
@@ -510,6 +586,7 @@ show_usage() {
     echo "  multi_threaded              Run multi-threaded cache profiling"
     echo "  quick [config_type]         Run quick cache benchmark (default: non_concurrent_default)"
     echo "  analyze                     Analyze existing perf results"
+    echo "  merge                       Merge all CSV files from existing benchmark runs"
     echo "  help                        Show this help message"
     echo ""
     echo "Examples:"
@@ -518,6 +595,7 @@ show_usage() {
     echo "  $0 multi_threaded           # Multi-threaded profiling only"
     echo "  $0 quick                    # Quick benchmark with default configuration"
     echo "  $0 analyze                  # Analyze existing results"
+    echo "  $0 merge                    # Merge all CSV files from existing benchmark runs"
     echo ""
     echo "Environment Variables:"
     echo "  RUNS=N                      Set number of runs per configuration (default: 3)"
@@ -532,15 +610,23 @@ show_usage() {
 case "${1:-full}" in
     "full")
         run_full_cache_profiling_single_threaded
-        run_full_cache_profiling_multi_threaded
-        analyze_cache_results
+        #run_full_cache_profiling_multi_threaded
+        echo ""
+        echo "Both single-threaded and multi-threaded profiling completed. Merging all CSV files..."
+        merge_csv_files
         ;;
     "single_threaded")
         run_full_cache_profiling_single_threaded
+        echo ""
+        echo "Single-threaded profiling completed. Merging CSV files..."
+        merge_csv_files
         analyze_cache_results
         ;;
     "multi_threaded")
         run_full_cache_profiling_multi_threaded
+        echo ""
+        echo "Multi-threaded profiling completed. Merging CSV files..."
+        merge_csv_files
         analyze_cache_results
         ;;
     "quick")
@@ -548,6 +634,9 @@ case "${1:-full}" in
         ;;
     "analyze")
         analyze_cache_results
+        ;;
+    "merge")
+        merge_csv_files
         ;;
     "help"|"-h"|"--help")
         show_usage

@@ -65,6 +65,97 @@ void generate_data(size_t count, DistributionType distribution, std::vector<T>& 
                 break;
             }
         }
+    } else if constexpr (std::is_same_v<T, uint64_t>) {
+        std::random_device rd;
+        std::mt19937_64 gen(rd());
+        
+        switch (distribution) {
+            case DistributionType::Sequential:
+                for (size_t i = 0; i < count; ++i) {
+                    data[i] = i + 1;
+                }
+                break;
+            case DistributionType::Random: {
+                // Generate unique random data using the pattern from GENERATE_RANDOM_NUMBER_ARRAY
+                // This ensures no duplicates for insert/delete operations
+                data.resize(count);
+                std::iota(data.begin(), data.end(), 1); // Fill with 1, 2, 3, ..., count
+                std::shuffle(data.begin(), data.end(), gen); // Shuffle to randomize order
+                break;
+            }
+            case DistributionType::Uniform: {
+                // Generate uniform distribution within the same range [1, count] as random data
+                // This ensures all keys exist in the tree but may have duplicates
+                std::uniform_int_distribution<uint64_t> dis(1, count);
+                for (size_t i = 0; i < count; ++i) {
+                    data[i] = dis(gen);
+                }
+                break;
+            }
+            case DistributionType::Zipfian: {
+                // Zipfian-like distribution within the same range [1, count] as random data
+                // This ensures all keys exist in the tree but with skewed access pattern
+                std::uniform_real_distribution<double> uniform(0.0, 1.0);
+                for (size_t i = 0; i < count; ++i) {
+                    double u = uniform(gen);
+                    uint64_t rank = static_cast<uint64_t>(1.0 / std::pow(u, 1.0 / 1.1));
+                    data[i] = (rank - 1) % count + 1; // Ensure range [1, count]
+                }
+                break;
+            }
+        }
+    } else if constexpr (std::is_same_v<T, CHAR16>) {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        
+        // Helper function to generate base string for index
+        auto generate_base_string = [](size_t idx) -> CHAR16 {
+            char str[16];
+            snprintf(str, sizeof(str), "str_%08zu", idx + 1);
+            return CHAR16::from_string(str);
+        };
+        
+        switch (distribution) {
+            case DistributionType::Sequential:
+                // Generate sequential strings: str_00000001, str_00000002, ...
+                for (size_t idx = 0; idx < count; ++idx) {
+                    data[idx] = generate_base_string(idx);
+                }
+                break;
+            case DistributionType::Random: {
+                // Generate unique random strings using the same approach as uint64_t
+                // Create indices [0, 1, 2, ..., count-1] then shuffle
+                std::vector<size_t> indices(count);
+                std::iota(indices.begin(), indices.end(), 0);
+                std::shuffle(indices.begin(), indices.end(), gen);
+                
+                // Generate strings based on shuffled indices
+                for (size_t i = 0; i < count; ++i) {
+                    data[i] = generate_base_string(indices[i]);
+                }
+                break;
+            }
+            case DistributionType::Uniform: {
+                // Generate uniform distribution within the same range [0, count-1] as random data
+                // This ensures all keys exist in the tree but may have duplicates
+                std::uniform_int_distribution<size_t> dis(0, count - 1);
+                for (size_t i = 0; i < count; ++i) {
+                    data[i] = generate_base_string(dis(gen));
+                }
+                break;
+            }
+            case DistributionType::Zipfian: {
+                // Zipfian-like distribution within the same range [0, count-1] as random data
+                // This ensures all keys exist in the tree but with skewed access pattern
+                std::uniform_real_distribution<double> uniform(0.0, 1.0);
+                for (size_t i = 0; i < count; ++i) {
+                    double u = uniform(gen);
+                    size_t rank = static_cast<size_t>(1.0 / std::pow(u, 1.0 / 1.1));
+                    data[i] = generate_base_string((rank - 1) % count);
+                }
+                break;
+            }
+        }
     }
 }
 
@@ -118,6 +209,10 @@ void create_workload(DistributionType distribution, size_t count) {
     std::string type_name;
     if constexpr (std::is_same_v<T, int>) {
         type_name = "int";
+    } else if constexpr (std::is_same_v<T, uint64_t>) {
+        type_name = "uint64_t";
+    } else if constexpr (std::is_same_v<T, CHAR16>) {
+        type_name = "char16";
     }
     
     std::string filename = generate_filename(type_name, distribution, count);
@@ -159,6 +254,20 @@ inline void generate_all_workloads() {
         }
     }
     
+    // Generate uint64_t workloads
+    for (size_t count : record_counts) {
+        for (DistributionType dist : distributions) {
+            create_workload<uint64_t>(dist, count);
+        }
+    }
+    
+    // Generate CHAR16 workloads
+    for (size_t count : record_counts) {
+        for (DistributionType dist : distributions) {
+            create_workload<CHAR16>(dist, count);
+        }
+    }
+    
     std::cout << "Workload generation completed." << std::endl;
 }
 
@@ -168,6 +277,10 @@ std::vector<T> load_insert_workload(size_t count) {
     std::string type_name;
     if constexpr (std::is_same_v<T, int>) {
         type_name = "int";
+    } else if constexpr (std::is_same_v<T, uint64_t>) {
+        type_name = "uint64_t";
+    } else if constexpr (std::is_same_v<T, CHAR16>) {
+        type_name = "char16";
     }
     
     std::string filename = generate_filename(type_name, DistributionType::Random, count);
@@ -187,6 +300,10 @@ std::vector<T> load_search_workload(size_t count, DistributionType distribution)
     std::string type_name;
     if constexpr (std::is_same_v<T, int>) {
         type_name = "int";
+    } else if constexpr (std::is_same_v<T, uint64_t>) {
+        type_name = "uint64_t";
+    } else if constexpr (std::is_same_v<T, CHAR16>) {
+        type_name = "char16";
     }
     
     std::string filename = generate_filename(type_name, distribution, count);

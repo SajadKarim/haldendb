@@ -16,6 +16,91 @@
 #include "csv_logger.hpp"
 #include "workloadgenerator.hpp"
 #include "bm_bplus_with_cache.hpp"
+#include "bm_bplus_with_cache_uint64_uint64.hpp"
+#include "bm_bplus_with_cache_char16_char16.hpp"
+#include "bm_bplus_with_cache_uint64_char16.hpp"
+
+// Function to run full benchmark suite for all data type combinations
+void run_full_benchmark_suite(
+    const std::string& cache_type,
+    int runs,
+    const std::string& output_dir,
+    const std::string& storage_type,
+    int cache_size,
+    int page_size,
+    long long memory_size,
+    const std::vector<std::string>& operations,
+    const std::vector<size_t>& degrees,
+    const std::vector<size_t>& record_counts,
+    int threads,
+    const std::string& config_name) {
+    
+    // Define all supported key-value type combinations
+    std::vector<std::pair<std::string, std::string>> type_combinations = {
+        {"int", "int"},
+        {"uint64_t", "uint64_t"},
+        {"char16", "char16"},
+        {"uint64_t", "char16"}
+    };
+    
+    for (const auto& [key_type, value_type] : type_combinations) {
+        std::cout << "\n=== Running benchmarks for " << key_type << " -> " << value_type << " ===" << std::endl;
+        
+        if (key_type == "int" && value_type == "int") {
+            bm_bplus_with_cache::test_with_shell_parameters(
+                cache_type, runs, output_dir, storage_type, cache_size, page_size, memory_size,
+                operations, degrees, record_counts, threads, config_name);
+        } else {
+            // For now, just print that other types are not yet implemented in full mode
+            std::cout << "Full benchmark suite for " << key_type << " -> " << value_type 
+                      << " not yet implemented" << std::endl;
+        }
+    }
+}
+
+// Function to run benchmark with specific key-value type combination
+void run_benchmark_for_types(
+    const std::string& key_type,
+    const std::string& value_type,
+    const std::string& cache_type,
+    const std::string& storage_type,
+    int cache_size,
+    int page_size,
+    long long memory_size,
+    const std::string& operation,
+    int degree,
+    int records,
+    int runs,
+    int threads,
+    const std::string& output_dir,
+    const std::string& config_name) {
+    
+    if (key_type == "int" && value_type == "int") {
+        bm_bplus_with_cache::test_single_configuration(
+            cache_type, storage_type, cache_size, page_size, memory_size,
+            key_type, value_type, operation, degree, records, runs, threads,
+            output_dir, config_name);
+    } else if (key_type == "uint64_t" && value_type == "uint64_t") {
+        bm_bplus_with_cache_uint64_uint64::test_single_configuration(
+            cache_type, storage_type, cache_size, page_size, memory_size,
+            key_type, value_type, operation, degree, records, runs, threads,
+            output_dir, config_name);
+    } else if (key_type == "char16" && value_type == "char16") {
+        bm_bplus_with_cache_char16_char16::test_single_configuration(
+            cache_type, storage_type, cache_size, page_size, memory_size,
+            key_type, value_type, operation, degree, records, runs, threads,
+            output_dir, config_name);
+    } else if (key_type == "uint64_t" && value_type == "char16") {
+        bm_bplus_with_cache_uint64_char16::test_single_configuration(
+            cache_type, storage_type, cache_size, page_size, memory_size,
+            key_type, value_type, operation, degree, records, runs, threads,
+            output_dir, config_name);
+    } else {
+        std::cerr << "Error: Unsupported key-value type combination: " 
+                  << key_type << " -> " << value_type << std::endl;
+        std::cerr << "Supported combinations: int->int, uint64_t->uint64_t, char16->char16, uint64_t->char16" << std::endl;
+    }
+}
 
 void print_usage(const char* program_name) {
     std::cout << "Usage: " << program_name << " [OPTIONS]\n";
@@ -28,8 +113,8 @@ void print_usage(const char* program_name) {
     std::cout << "  --page-size <size>     Page size (default: 4096)\n";
     std::cout << "  --memory-size <size>   Memory size in bytes (default: 1073741824 = 1GB)\n";
     std::cout << "  --tree-type <type>     Tree type: BPlusStore\n";
-    std::cout << "  --key-type <type>      Key type: int\n";
-    std::cout << "  --value-type <type>    Value type: int\n";
+    std::cout << "  --key-type <type>      Key type: int, uint64_t, char16\n";
+    std::cout << "  --value-type <type>    Value type: int, uint64_t, char16\n";
     std::cout << "  --operation <op>       Operation: insert, search_random, search_sequential, search_uniform, search_zipfian, delete\n";
     std::cout << "  --degree <degree>      Tree degree (16-320)\n";
     std::cout << "  --records <count>      Number of records (100000, 500000, 1000000, 5000000, 10000000)\n";
@@ -48,7 +133,9 @@ void print_usage(const char* program_name) {
     std::cout << "  runs                   Number of test runs (optional, default: 1)\n";
     std::cout << "\nExamples:\n";
     std::cout << "  " << program_name << " single BPlusStore int int insert 64 100000 1\n";
-    std::cout << "  " << program_name << " single BPlusStore int int search 128\n";
+    std::cout << "  " << program_name << " single BPlusStore uint64_t uint64_t search 128\n";
+    std::cout << "  " << program_name << " single BPlusStore char16 char16 insert 64\n";
+    std::cout << "  " << program_name << " single BPlusStore uint64_t char16 search 128\n";
     std::cout << "  " << program_name << " --config bm_cache --runs 3\n";
     std::cout << "  " << program_name << " --runs 5\n";
     std::cout << "\nIf no arguments provided, runs full benchmark suite for default configuration.\n";
@@ -160,7 +247,7 @@ int main(int argc, char* argv[])
                 record_counts = {static_cast<size_t>(std::stoi(args["records"]))};
             }
             
-            bm_bplus_with_cache::test_with_shell_parameters(
+            run_full_benchmark_suite(
                 cache_type, runs, output_dir, storage_type, cache_size, page_size, memory_size,
                 operations, degrees, record_counts, threads, config_name);
 #else
@@ -191,7 +278,7 @@ int main(int argc, char* argv[])
         std::vector<size_t> degrees = {64, 128};
         std::vector<size_t> record_counts = {100000, 500000};
         
-        bm_bplus_with_cache::test_with_shell_parameters(
+        run_full_benchmark_suite(
             "LRU", runs, "", "VolatileStorage", 100, 4096, 1073741824LL,
             operations, degrees, record_counts, 1, "");
 #else
@@ -224,10 +311,9 @@ int main(int argc, char* argv[])
 #ifdef __TREE_WITH_CACHE__
         std::string output_dir = args.count("output-dir") ? args["output-dir"] : "";
         
-        bm_bplus_with_cache::test_single_configuration(
-            cache_type, storage_type, cache_size, page_size, memory_size,
-            key_type, value_type, operation, degree, records, runs, threads, 
-            output_dir, config_name);
+        run_benchmark_for_types(
+            key_type, value_type, cache_type, storage_type, cache_size, page_size, memory_size,
+            operation, degree, records, runs, threads, output_dir, config_name);
 #else
         std::cerr << "Error: Cache configuration not enabled. Please build with -D__TREE_WITH_CACHE__" << std::endl;
         return 1;

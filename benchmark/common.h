@@ -3,6 +3,9 @@
 #include <string>
 #include <chrono>
 #include <vector>
+#include <cstring>
+#include <cstdio>
+#include <type_traits>
 
 // Common constants and utilities for benchmarking
 
@@ -20,6 +23,100 @@ constexpr size_t DEFAULT_MEMORY_SIZE = 1073741824; // 1GB
 constexpr size_t DEFAULT_RECORDS = 100000;
 constexpr size_t DEFAULT_DEGREE = 64;
 constexpr int DEFAULT_RUNS = 1;
+
+// CHAR16 type definition (16-byte character string)
+// Made POD-compliant for serialization compatibility
+struct CHAR16 {
+    char data[16];
+
+    // Default constructor (trivial)
+    CHAR16() = default;
+
+    // Copy constructor (trivial)
+    CHAR16(const CHAR16& other) = default;
+
+    // Assignment operator (trivial)
+    CHAR16& operator=(const CHAR16& other) = default;
+
+    // Static factory function to create from string
+    static CHAR16 from_string(const char* str) {
+        CHAR16 result{};
+        std::memset(result.data, 0, sizeof(result.data));
+#ifndef _MSC_VER
+        strncpy(result.data, str, sizeof(result.data) - 1);
+#else //_MSC_VER
+        strncpy_s(result.data, sizeof(result.data), str, sizeof(result.data) - 1);
+#endif //_MSC_VER
+        return result;
+    }
+
+    // Static factory function to create from numeric value
+    template<typename T, typename = typename std::enable_if<std::is_integral<T>::value>::type>
+    static CHAR16 from_value(T value) {
+        CHAR16 result{};
+        std::memset(result.data, 0, sizeof(result.data));
+        char str[16];
+        snprintf(str, sizeof(str), "str_%08llu", static_cast<unsigned long long>(value));
+#ifndef _MSC_VER
+        strncpy(result.data, str, sizeof(result.data) - 1);
+#else //_MSC_VER
+        strncpy_s(result.data, sizeof(result.data), str, sizeof(result.data) - 1);
+#endif //_MSC_VER
+        return result;
+    }
+
+    // Comparison operators
+    bool operator==(const CHAR16& other) const {
+        return std::memcmp(data, other.data, sizeof(data)) == 0;
+    }
+
+    bool operator!=(const CHAR16& other) const {
+        return !(*this == other);
+    }
+
+    bool operator<(const CHAR16& other) const {
+        return std::memcmp(data, other.data, sizeof(data)) < 0;
+    }
+
+    bool operator<=(const CHAR16& other) const {
+        return std::memcmp(data, other.data, sizeof(data)) <= 0;
+    }
+
+    bool operator>(const CHAR16& other) const {
+        return std::memcmp(data, other.data, sizeof(data)) > 0;
+    }
+
+    bool operator>=(const CHAR16& other) const {
+        return std::memcmp(data, other.data, sizeof(data)) >= 0;
+    }
+
+    // String conversion
+    std::string to_string() const {
+        return std::string(data, strnlen(data, sizeof(data)));
+    }
+
+    // C-string access
+    const char* c_str() const {
+        return data;
+    }
+};
+
+// Hash function for CHAR16 (needed for unordered containers)
+namespace std {
+    template<>
+    struct hash<CHAR16> {
+        size_t operator()(const CHAR16& c) const {
+            size_t hash_value = 0;
+            for (size_t i = 0; i < sizeof(c.data); ++i) {
+                hash_value = hash_value * 31 + static_cast<size_t>(c.data[i]);
+            }
+            return hash_value;
+        }
+    };
+}
+
+// Alias for convenience
+using char16 = CHAR16;
 
 // Timing utilities
 using TimePoint = std::chrono::high_resolution_clock::time_point;
@@ -243,5 +340,5 @@ inline bool validate_operation(const std::string& operation) {
 }
 
 inline bool validate_key_value_type(const std::string& type) {
-    return type == "int";
+    return type == "int" || type == "uint64_t" || type == "char16";
 }
