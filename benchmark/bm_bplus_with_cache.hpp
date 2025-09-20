@@ -166,7 +166,7 @@ Duration benchmark_concurrent_operation(BPlusStoreType& store, const std::string
         if (operation == "insert") {
             threads.emplace_back(concurrent_insert<BPlusStoreType>, std::ref(store), 
                                std::cref(keys), std::cref(values), start_idx, end_idx);
-        } else if (operation == "search") {
+        } else if (operation.find("search_") == 0) {
             threads.emplace_back(concurrent_search<BPlusStoreType>, std::ref(store), 
                                std::cref(keys), start_idx, end_idx);
         } else if (operation == "delete") {
@@ -208,13 +208,24 @@ std::vector<BenchmarkResult> run_benchmark_configuration(
               << " - Records " << records << " - Threads " << thread_count << std::endl;
     
     for (int run = 0; run < runs; ++run) {
-        // Create fresh data for each run
-        std::vector<KeyType> keys = rng.generate_sequential_sequence(records, 1);
-        std::vector<ValueType> values = rng.generate_sequential_sequence(records, 1);
+        // Create fresh data for each run using workload generator
+        // Load unique random data for insert operations (keys and values)
+        std::vector<KeyType> keys = workloadgenerator::load_insert_workload<KeyType>(records);
+        std::vector<ValueType> values = workloadgenerator::load_insert_workload<ValueType>(records);
         
-        if (operation == "search" || operation == "delete") {
-            // For search and delete, we need to shuffle to avoid sequential access patterns
-            rng.shuffle_sequence(keys);
+        // Generate search keys based on operation type using workload generator
+        std::vector<KeyType> search_keys;
+        if (operation == "search_random") {
+            search_keys = workloadgenerator::load_search_workload<KeyType>(records, workloadgenerator::DistributionType::Random);
+        } else if (operation == "search_sequential") {
+            search_keys = workloadgenerator::load_search_workload<KeyType>(records, workloadgenerator::DistributionType::Sequential);
+        } else if (operation == "search_uniform") {
+            search_keys = workloadgenerator::load_search_workload<KeyType>(records, workloadgenerator::DistributionType::Uniform);
+        } else if (operation == "search_zipfian") {
+            search_keys = workloadgenerator::load_search_workload<KeyType>(records, workloadgenerator::DistributionType::Zipfian);
+        } else if (operation == "delete") {
+            // For delete, use the same keys as insert (already randomized)
+            // No need to shuffle since keys are already unique and random
         }
         
         // Create BPlusStore instance (only VolatileStorage supported for now)
@@ -229,15 +240,15 @@ std::vector<BenchmarkResult> run_benchmark_configuration(
             } else {
                 duration = benchmark_concurrent_operation(*store, operation, keys, values, thread_count);
             }
-        } else if (operation == "search") {
+        } else if (operation.find("search_") == 0) {
             // First insert all data
             benchmark_insert(*store, keys, values);
             
-            // Then measure search performance
+            // Then measure search performance using the appropriate search keys
             if (thread_count == 1) {
-                duration = benchmark_search(*store, keys);
+                duration = benchmark_search(*store, search_keys);
             } else {
-                duration = benchmark_concurrent_operation(*store, operation, keys, values, thread_count);
+                duration = benchmark_concurrent_operation(*store, operation, search_keys, values, thread_count);
             }
         } else if (operation == "delete") {
             // First insert all data
@@ -251,9 +262,22 @@ std::vector<BenchmarkResult> run_benchmark_configuration(
             }
         }
         
+#ifdef __CACHE_COUNTERS__
+        // Collect cache performance counters
+        uint64_t cache_hits = store->getCacheHits();
+        uint64_t cache_misses = store->getCacheMisses();
+        uint64_t evictions = store->getEvictions();
+        uint64_t dirty_evictions = store->getDirtyEvictions();
+        
+        BenchmarkResult result("BPlusStore", cache_type_name, storage_type_name, cache_size,
+                              "int", "int", operation, degree, records, run + 1, 
+                              thread_count, duration, config_name,
+                              cache_hits, cache_misses, evictions, dirty_evictions);
+#else
         BenchmarkResult result("BPlusStore", cache_type_name, storage_type_name, cache_size,
                               "int", "int", operation, degree, records, run + 1, 
                               thread_count, duration, config_name);
+#endif //__CACHE_COUNTERS__
         
         results.push_back(result);
         

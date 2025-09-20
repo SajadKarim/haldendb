@@ -1,3 +1,5 @@
+#pragma once
+
 #include <iostream>
 #include <vector>
 #include <random>
@@ -5,6 +7,8 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <numeric>
+#include <cmath>
 #include "common.h"
 
 namespace workloadgenerator {
@@ -156,6 +160,44 @@ inline void generate_all_workloads() {
     }
     
     std::cout << "Workload generation completed." << std::endl;
+}
+
+// Load workload data for insert operations (unique random data)
+template<typename T>
+std::vector<T> load_insert_workload(size_t count) {
+    std::string type_name;
+    if constexpr (std::is_same_v<T, int>) {
+        type_name = "int";
+    }
+    
+    std::string filename = generate_filename(type_name, DistributionType::Random, count);
+    
+    // Check if file exists, if not generate it
+    if (!std::filesystem::exists(filename)) {
+        std::cout << "Workload file " << filename << " not found, generating..." << std::endl;
+        create_workload<T>(DistributionType::Random, count);
+    }
+    
+    return load_data_from_file<T>(filename);
+}
+
+// Load workload data for search operations based on distribution type
+template<typename T>
+std::vector<T> load_search_workload(size_t count, DistributionType distribution) {
+    std::string type_name;
+    if constexpr (std::is_same_v<T, int>) {
+        type_name = "int";
+    }
+    
+    std::string filename = generate_filename(type_name, distribution, count);
+    
+    // Check if file exists, if not generate it
+    if (!std::filesystem::exists(filename)) {
+        std::cout << "Workload file " << filename << " not found, generating..." << std::endl;
+        create_workload<T>(distribution, count);
+    }
+    
+    return load_data_from_file<T>(filename);
 }
 
 } // namespace workloadgenerator

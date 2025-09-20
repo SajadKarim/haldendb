@@ -25,7 +25,7 @@ echo "=========================================="
 # Cache-specific configuration arrays
 CACHE_TYPES=("LRU" "SSARC" "CLOCK")  # CLOCK cache now enabled and fixed
 STORAGE_TYPES=("VolatileStorage")
-CACHE_SIZE_PERCENTAGES=("5%" "15%" "25%")  # Cache sizes as percentages of dataset size
+CACHE_SIZE_PERCENTAGES=("5%" "10%" "20%")  # Cache sizes as percentages of estimated B+ tree pages
 PAGE_SIZES=(4096)
 MEMORY_SIZES=(1073741824)  # 1GB default
 
@@ -36,34 +36,55 @@ TREES=("BPlusStore")
 DEGREES=(64)
 
 # Operations to profile
-OPERATIONS=("insert" "search" "delete")
+OPERATIONS=("insert" "search_random" "search_sequential" "search_uniform" "search_zipfian" "delete")
 
 # Key-Value type combinations
 declare -A KEY_VALUE_COMBOS
 KEY_VALUE_COMBOS["int_int"]="int int"
 
 # Record count for profiling
-RECORDS=(100000)
-RUNS=${RUNS:-3}  # Default to 3, but allow override via environment variable
-THREADS=(1 2 4 8)
+RECORDS=(100000 500000)
+RUNS=${RUNS:-1}  # Default to 3, but allow override via environment variable
+THREADS=(4)
 
 # Perf events to collect (cache-focused)
 PERF_EVENTS="cache-misses,cache-references,cycles,instructions,branch-misses,page-faults,L1-dcache-load-misses,L1-dcache-loads,LLC-load-misses,LLC-loads"
 
-# Function to calculate actual cache size from percentage and record count
+# Function to calculate actual cache size from percentage and estimated page count
 calculate_cache_size() {
     local percentage=$1
     local record_count=$2
+    local degree=${3:-64}  # Default degree if not provided
     
     # Remove the % symbol and convert to decimal
     local percent_value=${percentage%\%}
     
-    # Calculate cache size as percentage of record count
-    local cache_size=$((record_count * percent_value / 100))
+    # Estimate the number of pages in the B+ tree
+    # For a B+ tree with degree d:
+    # - Leaf pages: approximately record_count / (d-1) 
+    # - Internal pages: approximately leaf_pages / d (for each level)
+    # - Total pages is roughly 1.1 to 1.2 times the leaf pages (accounting for internal nodes)
     
-    # Ensure minimum cache size
+    local leaf_pages=$((record_count / (degree - 1)))
+    if [ $leaf_pages -lt 1 ]; then
+        leaf_pages=1
+    fi
+    
+    # Estimate total pages (leaf + internal nodes)
+    # Using a conservative multiplier of 1.15 for internal nodes
+    local estimated_total_pages=$((leaf_pages * 115 / 100))
+    
+    # Calculate cache size as percentage of estimated total pages
+    local cache_size=$((estimated_total_pages * percent_value / 100))
+    
+    # Ensure minimum cache size for meaningful testing
     if [ $cache_size -lt 10 ]; then
         cache_size=10
+    fi
+    
+    # Ensure cache size doesn't exceed total estimated pages (would give 100% hit ratio)
+    if [ $cache_size -gt $estimated_total_pages ]; then
+        cache_size=$estimated_total_pages
     fi
     
     echo $cache_size
@@ -87,14 +108,14 @@ build_cache_configuration() {
 
     # Configure and build based on type
     if [ "$config_type" = "non_concurrent_default" ]; then
-        echo "Building with cache + non_concurrent_default ..."
-        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D__TREE_WITH_CACHE__ $RELEASE_OPTS"
+        echo "Building with cache + non_concurrent_default + cache counters ..."
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D__TREE_WITH_CACHE__ -D__CACHE_COUNTERS__ $RELEASE_OPTS"
     elif [ "$config_type" = "concurrent_default" ]; then
-        echo "Building with cache + concurrent_default ..."
-        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D__TREE_WITH_CACHE__ -D__CONCURRENT__ $RELEASE_OPTS"
+        echo "Building with cache + concurrent_default + cache counters ..."
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D__TREE_WITH_CACHE__ -D__CONCURRENT__ -D__CACHE_COUNTERS__ $RELEASE_OPTS"
     else
-        echo "Building with cache + default ..."
-        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D__TREE_WITH_CACHE__ $RELEASE_OPTS"
+        echo "Building with cache + default + cache counters ..."
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D__TREE_WITH_CACHE__ -D__CACHE_COUNTERS__ $RELEASE_OPTS"
     fi
     
     make -j$(nproc)
@@ -272,10 +293,10 @@ run_full_cache_profiling_with_params() {
                             for degree in "${degrees_ref[@]}"; do
                                 for records in "${records_ref[@]}"; do
                                     for memory_size in "${memory_sizes_ref[@]}"; do
-                                        # Calculate actual cache size from percentage and record count
-                                        local actual_cache_size=$(calculate_cache_size "$cache_size_percentage" "$records")
+                                        # Calculate actual cache size from percentage, record count, and degree
+                                        local actual_cache_size=$(calculate_cache_size "$cache_size_percentage" "$records" "$degree")
                                         
-                                        echo "Cache size calculation: $cache_size_percentage of $records records = $actual_cache_size entries"                                
+                                        echo "Cache size calculation: $cache_size_percentage of estimated pages for $records records (degree $degree) = $actual_cache_size entries"                                
                                     
                                         for operation in "${operations_ref[@]}"; do
                                             for thread_count in "${threads_ref[@]}"; do
@@ -309,7 +330,7 @@ run_full_cache_profiling_with_params() {
 run_full_cache_profiling_single_threaded() {
     # Create a local single-threaded array
     local SINGLE_THREADS=(1)
-    local CACHE_TYPES_LOCAL=("LRU" "SSARC" "CLOCK")
+    local CACHE_TYPES_LOCAL=("CLOCK")
 
     echo "Running single-threaded BPlusStore cache profiling..."
     echo "Using cache types: ${CACHE_TYPES_LOCAL[*]}"

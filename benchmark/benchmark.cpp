@@ -14,6 +14,7 @@
 
 #include "common.h"
 #include "csv_logger.hpp"
+#include "workloadgenerator.hpp"
 #include "bm_bplus_with_cache.hpp"
 
 void print_usage(const char* program_name) {
@@ -29,7 +30,7 @@ void print_usage(const char* program_name) {
     std::cout << "  --tree-type <type>     Tree type: BPlusStore\n";
     std::cout << "  --key-type <type>      Key type: int\n";
     std::cout << "  --value-type <type>    Value type: int\n";
-    std::cout << "  --operation <op>       Operation: insert, search, delete\n";
+    std::cout << "  --operation <op>       Operation: insert, search_random, search_sequential, search_uniform, search_zipfian, delete\n";
     std::cout << "  --degree <degree>      Tree degree (16-320)\n";
     std::cout << "  --records <count>      Number of records (100000, 500000, 1000000, 5000000, 10000000)\n";
     std::cout << "  --runs <count>         Number of test runs (default: 1)\n";
@@ -131,6 +132,11 @@ int main(int argc, char* argv[])
     if (!args.count("tree-type")) {
         std::cout << "BPlusStore Benchmark Suite\n";
         
+        // Generate workloads if they don't exist
+        std::cout << "Ensuring workload data files exist..." << std::endl;
+        workloadgenerator::generate_all_workloads();
+        std::cout << "Workload generation completed." << std::endl;
+        
         // Run full benchmark based on configuration
         if (config == "bm_cache") {
 #ifdef __TREE_WITH_CACHE__
@@ -139,7 +145,7 @@ int main(int argc, char* argv[])
             std::string output_dir = args.count("output-dir") ? args["output-dir"] : "";
             
             // Prepare operations, degrees, and record counts based on provided parameters
-            std::vector<std::string> operations = {"insert", "search", "delete"};
+            std::vector<std::string> operations = {"insert", "search_random", "search_sequential", "search_uniform", "search_zipfian", "delete"};
             std::vector<size_t> degrees = {64, 128};
             std::vector<size_t> record_counts = {100000, 500000, 1000000};
             
@@ -171,12 +177,17 @@ int main(int argc, char* argv[])
         // No arguments at all - run default configuration
         std::cout << "BPlusStore Benchmark Suite\n";
         
+        // Generate workloads if they don't exist
+        std::cout << "Ensuring workload data files exist..." << std::endl;
+        workloadgenerator::generate_all_workloads();
+        std::cout << "Workload generation completed." << std::endl;
+        
         // Default to cache configuration
 #ifdef __TREE_WITH_CACHE__
         std::cout << "Testing BPlusStore with LRU Cache..." << std::endl;
         std::cout << "Number of runs per configuration: " << runs << std::endl;
         
-        std::vector<std::string> operations = {"insert", "search", "delete"};
+        std::vector<std::string> operations = {"insert", "search_random", "search_sequential", "search_uniform", "search_zipfian", "delete"};
         std::vector<size_t> degrees = {64, 128};
         std::vector<size_t> record_counts = {100000, 500000};
         
@@ -203,6 +214,11 @@ int main(int argc, char* argv[])
     std::cout << "Key/Value: " << key_type << "/" << value_type << ", Operation: " << operation << "\n";
     std::cout << "Degree: " << degree << ", Records: " << records << ", Runs: " << runs << "\n";
     std::cout << "Threads: " << threads << ", Cache Size: " << cache_size << "\n";
+    
+    // Generate workloads if they don't exist (needed for single configuration mode)
+    std::cout << "Ensuring workload data files exist..." << std::endl;
+    workloadgenerator::generate_all_workloads();
+    std::cout << "Workload generation completed." << std::endl;
     
     if (config == "bm_cache") {
 #ifdef __TREE_WITH_CACHE__

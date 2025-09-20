@@ -937,4 +937,35 @@ public:
         }
     }
 #endif //__TREE_WITH_CACHE__
+
+#ifdef __CACHE_COUNTERS__
+    // Cache performance counter access methods
+    uint64_t getCacheHits() const {
+        return m_ptrCache->getCacheHits();
+    }
+    
+    uint64_t getCacheMisses() const {
+        return m_ptrCache->getCacheMisses();
+    }
+    
+    uint64_t getEvictions() const {
+        return m_ptrCache->getEvictions();
+    }
+    
+    uint64_t getDirtyEvictions() const {
+        return m_ptrCache->getDirtyEvictions();
+    }
+    
+    double getCacheHitRatio() const {
+        return m_ptrCache->getCacheHitRatio();
+    }
+    
+    uint64_t getTotalEvictions() const {
+        return m_ptrCache->getTotalEvictions();
+    }
+    
+    void resetCacheCounters() {
+        m_ptrCache->resetCacheCounters();
+    }
+#endif //__CACHE_COUNTERS__
 };

@@ -11,6 +11,7 @@
 #include  <algorithm>
 #include <tuple>
 #include <condition_variable>
+#include <atomic>
 #include <assert.h>
 #include "IFlushCallback.h"
 #include "VariadicNthType.h"
@@ -89,6 +90,13 @@ private:
 	mutable std::shared_mutex m_mtxCache;
 	mutable std::shared_mutex m_mtxStorage;
 #endif //__CONCURRENT__
+
+#ifdef __CACHE_COUNTERS__
+	std::atomic<uint64_t> m_nCacheHits{0};
+	std::atomic<uint64_t> m_nCacheMisses{0};
+	std::atomic<uint64_t> m_nEvictions{0};
+	std::atomic<uint64_t> m_nDirtyEvictions{0};
+#endif //__CACHE_COUNTERS__
 
 public:
 	~SSARCCache()
@@ -209,6 +217,10 @@ public:
 			moveToFrontOfQ2(ptrItem);
 			ptrObject = ptrItem->m_ptrObject;
 
+#ifdef __CACHE_COUNTERS__
+			m_nCacheHits.fetch_add(1, std::memory_order_relaxed);
+#endif //__CACHE_COUNTERS__
+
 			return CacheErrorCode::Success;
 		}
 
@@ -244,6 +256,10 @@ public:
 
 		if (ptrObject != nullptr)
 		{
+#ifdef __CACHE_COUNTERS__
+			m_nCacheMisses.fetch_add(1, std::memory_order_relaxed);
+#endif //__CACHE_COUNTERS__
+
 			std::shared_ptr<Item> ptrItem = std::make_shared<Item>(uidTemp, ptrObject);
 
 #ifdef __CONCURRENT__
@@ -1328,6 +1344,14 @@ private:
 
 			vtObjects.push_back(std::make_pair(ptrItemToFlush->m_uidSelf, std::make_pair(std::nullopt, ptrItemToFlush->m_ptrObject)));
 
+#ifdef __CACHE_COUNTERS__
+		if (ptrItemToFlush->m_ptrObject->getDirtyFlag()) {
+			m_nDirtyEvictions.fetch_add(1, std::memory_order_relaxed);
+		}
+		// All evictions (both dirty and clean) should increment the general eviction counter
+		m_nEvictions.fetch_add(1, std::memory_order_relaxed);
+#endif //__CACHE_COUNTERS__
+
 #ifdef __TRACK_CACHE_FOOTPRINT__
 			m_nCacheFootprint -= ptrItemToFlush->m_ptrObject->getMemoryFootprint();
 #endif //__TRACK_CACHE_FOOTPRINT__
@@ -1537,6 +1561,14 @@ private:
 				m_mpUIDUpdates[m_ptrTailPF->m_uidSelf] = std::make_pair(uidUpdated, m_ptrTailPF->m_ptrObject);
 			}
 
+#ifdef __CACHE_COUNTERS__
+			if (m_ptrTailPF->m_ptrObject->getDirtyFlag()) {
+				m_nDirtyEvictions.fetch_add(1, std::memory_order_relaxed);
+			}
+			// All evictions (both dirty and clean) should increment the general eviction counter
+			m_nEvictions.fetch_add(1, std::memory_order_relaxed);
+#endif //__CACHE_COUNTERS__
+
 			m_mpObjects.erase(m_ptrTailPF->m_uidSelf);
 
 			std::shared_ptr<Item> ptrTemp = m_ptrTailPF;
@@ -1712,6 +1744,14 @@ private:
 
 			vtObjects.push_back(std::make_pair(ptrItemToFlush->m_uidSelf, std::make_pair(std::nullopt, ptrItemToFlush->m_ptrObject)));
 
+#ifdef __CACHE_COUNTERS__
+		if (ptrItemToFlush->m_ptrObject->getDirtyFlag()) {
+			m_nDirtyEvictions.fetch_add(1, std::memory_order_relaxed);
+		}
+		// All evictions (both dirty and clean) should increment the general eviction counter
+		m_nEvictions.fetch_add(1, std::memory_order_relaxed);
+#endif //__CACHE_COUNTERS__
+
 #ifdef __TRACK_CACHE_FOOTPRINT__
 			m_nCacheFootprint -= ptrItemToFlush->m_ptrObject->getMemoryFootprint();
 #endif //__TRACK_CACHE_FOOTPRINT__
@@ -1830,6 +1870,14 @@ private:
 			}
 
 			vtObjects.push_back(std::make_pair(ptrItemToFlush->m_uidSelf, std::make_pair(std::nullopt, ptrItemToFlush->m_ptrObject)));
+
+#ifdef __CACHE_COUNTERS__
+		if (ptrItemToFlush->m_ptrObject->getDirtyFlag()) {
+			m_nDirtyEvictions.fetch_add(1, std::memory_order_relaxed);
+		}
+		// All evictions (both dirty and clean) should increment the general eviction counter
+		m_nEvictions.fetch_add(1, std::memory_order_relaxed);
+#endif //__CACHE_COUNTERS__
 
 #ifdef __TRACK_CACHE_FOOTPRINT__
 			m_nCacheFootprint -= ptrItemToFlush->m_ptrObject->getMemoryFootprint();
@@ -1979,6 +2027,14 @@ private:
 
 			vtObjects.push_back(std::make_pair(ptrItemToFlush->m_uidSelf, std::make_pair(std::nullopt, ptrItemToFlush->m_ptrObject)));
 
+#ifdef __CACHE_COUNTERS__
+		if (ptrItemToFlush->m_ptrObject->getDirtyFlag()) {
+			m_nDirtyEvictions.fetch_add(1, std::memory_order_relaxed);
+		}
+		// All evictions (both dirty and clean) should increment the general eviction counter
+		m_nEvictions.fetch_add(1, std::memory_order_relaxed);
+#endif //__CACHE_COUNTERS__
+
 			ptrItemToFlush = ptrItemToFlush->m_ptrPrev;
 		}
 
@@ -2067,6 +2123,14 @@ private:
 				m_mpUIDUpdates[m_ptrTailOTA->m_uidSelf] = std::make_pair(uidUpdated, m_ptrTailOTA->m_ptrObject);
 			}
 
+#ifdef __CACHE_COUNTERS__
+			if (m_ptrTailOTA->m_ptrObject->getDirtyFlag()) {
+				m_nDirtyEvictions.fetch_add(1, std::memory_order_relaxed);
+			}
+			// All evictions (both dirty and clean) should increment the general eviction counter
+			m_nEvictions.fetch_add(1, std::memory_order_relaxed);
+#endif //__CACHE_COUNTERS__
+
 			m_mpObjects.erase(m_ptrTailOTA->m_uidSelf);
 
 			std::shared_ptr<Item> ptrTemp = m_ptrTailOTA;
@@ -2118,4 +2182,43 @@ public:
 	{
 	}
 #endif //__TREE_WITH_CACHE__
+
+#ifdef __CACHE_COUNTERS__
+public:
+	// Cache counter access methods
+	uint64_t getCacheHits() const {
+		return m_nCacheHits.load(std::memory_order_relaxed);
+	}
+	
+	uint64_t getCacheMisses() const {
+		return m_nCacheMisses.load(std::memory_order_relaxed);
+	}
+	
+	uint64_t getEvictions() const {
+		return m_nEvictions.load(std::memory_order_relaxed);
+	}
+	
+	uint64_t getDirtyEvictions() const {
+		return m_nDirtyEvictions.load(std::memory_order_relaxed);
+	}
+	
+	uint64_t getTotalEvictions() const {
+		return m_nEvictions.load(std::memory_order_relaxed) + 
+		       m_nDirtyEvictions.load(std::memory_order_relaxed);
+	}
+	
+	double getCacheHitRatio() const {
+		uint64_t hits = m_nCacheHits.load(std::memory_order_relaxed);
+		uint64_t misses = m_nCacheMisses.load(std::memory_order_relaxed);
+		uint64_t total = hits + misses;
+		return total > 0 ? static_cast<double>(hits) / total : 0.0;
+	}
+	
+	void resetCounters() {
+		m_nCacheHits.store(0, std::memory_order_relaxed);
+		m_nCacheMisses.store(0, std::memory_order_relaxed);
+		m_nEvictions.store(0, std::memory_order_relaxed);
+		m_nDirtyEvictions.store(0, std::memory_order_relaxed);
+	}
+#endif //__CACHE_COUNTERS__
 };

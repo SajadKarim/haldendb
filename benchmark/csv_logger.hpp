@@ -41,7 +41,11 @@ public:
         if (!header_written_) {
             file_ << "tree_type,cache_type,storage_type,cache_size,key_type,value_type,"
                   << "operation,record_count,degree,run_id,thread_count,time_ns,time_us,"
-                  << "throughput_ops_sec,timestamp,config_name\n";
+                  << "throughput_ops_sec,timestamp,config_name";
+#ifdef __CACHE_COUNTERS__
+            file_ << ",cache_hits,cache_misses,evictions,dirty_evictions,cache_hit_ratio";
+#endif //__CACHE_COUNTERS__
+            file_ << "\n";
             header_written_ = true;
         }
     }
@@ -64,7 +68,15 @@ public:
               << duration_to_microseconds(result.duration) << ","
               << std::fixed << std::setprecision(2) << result.throughput_ops_sec << ","
               << result.timestamp << ","
-              << result.config_name << "\n";
+              << result.config_name;
+#ifdef __CACHE_COUNTERS__
+        file_ << "," << result.cache_hits
+              << "," << result.cache_misses
+              << "," << result.evictions
+              << "," << result.dirty_evictions
+              << "," << std::fixed << std::setprecision(4) << result.cache_hit_ratio;
+#endif //__CACHE_COUNTERS__
+        file_ << "\n";
         
         file_.flush();
     }

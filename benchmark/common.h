@@ -1,0 +1,247 @@
+#pragma once
+
+#include <string>
+#include <chrono>
+#include <vector>
+
+// Common constants and utilities for benchmarking
+
+// File paths for storage
+#ifdef _MSC_VER
+#define FILE_STORAGE_PATH "c:\\filestore.hdb"
+#else
+#define FILE_STORAGE_PATH "./filestore.hdb"
+#endif
+
+// Benchmark configuration constants
+constexpr size_t DEFAULT_CACHE_SIZE = 100;
+constexpr size_t DEFAULT_PAGE_SIZE = 4096;
+constexpr size_t DEFAULT_MEMORY_SIZE = 1073741824; // 1GB
+constexpr size_t DEFAULT_RECORDS = 100000;
+constexpr size_t DEFAULT_DEGREE = 64;
+constexpr int DEFAULT_RUNS = 1;
+
+// Timing utilities
+using TimePoint = std::chrono::high_resolution_clock::time_point;
+using Duration = std::chrono::nanoseconds;
+
+inline TimePoint get_time() {
+    return std::chrono::high_resolution_clock::now();
+}
+
+inline Duration get_duration(const TimePoint& start, const TimePoint& end) {
+    return std::chrono::duration_cast<Duration>(end - start);
+}
+
+inline double duration_to_seconds(const Duration& duration) {
+    return duration.count() / 1e9;
+}
+
+inline double duration_to_microseconds(const Duration& duration) {
+    return duration.count() / 1e3;
+}
+
+// Throughput calculation
+inline double calculate_throughput(size_t operations, const Duration& duration) {
+    double seconds = duration_to_seconds(duration);
+    return seconds > 0 ? operations / seconds : 0.0;
+}
+
+// Random number generation utilities
+class RandomGenerator {
+private:
+    std::mt19937 gen_;
+    
+public:
+    RandomGenerator(uint32_t seed = std::chrono::steady_clock::now().time_since_epoch().count()) 
+        : gen_(seed) {}
+    
+    int random_int(int min, int max) {
+        std::uniform_int_distribution<int> dist(min, max);
+        return dist(gen_);
+    }
+    
+    std::vector<int> generate_random_sequence(size_t count, int min, int max) {
+        std::vector<int> sequence;
+        sequence.reserve(count);
+        
+        for (size_t i = 0; i < count; ++i) {
+            sequence.push_back(random_int(min, max));
+        }
+        
+        return sequence;
+    }
+    
+    std::vector<int> generate_sequential_sequence(size_t count, int start = 1) {
+        std::vector<int> sequence;
+        sequence.reserve(count);
+        
+        for (size_t i = 0; i < count; ++i) {
+            sequence.push_back(start + static_cast<int>(i));
+        }
+        
+        return sequence;
+    }
+    
+    void shuffle_sequence(std::vector<int>& sequence) {
+        std::shuffle(sequence.begin(), sequence.end(), gen_);
+    }
+    
+    // Generate different search patterns
+    std::vector<int> generate_random_search_sequence(size_t count, int min, int max) {
+        // Generate unique random sequence (no duplicates)
+        std::vector<int> sequence;
+        sequence.reserve(count);
+        
+        // Fill with sequential values first
+        for (int i = min; i <= max && sequence.size() < count; ++i) {
+            sequence.push_back(i);
+        }
+        
+        // If we need more values than the range, fill with random values
+        while (sequence.size() < count) {
+            sequence.push_back(random_int(min, max));
+        }
+        
+        // Shuffle to randomize order
+        std::shuffle(sequence.begin(), sequence.end(), gen_);
+        return sequence;
+    }
+    
+    std::vector<int> generate_uniform_search_sequence(size_t count, int min, int max) {
+        // Generate uniform distribution (may have duplicates)
+        std::vector<int> sequence;
+        sequence.reserve(count);
+        
+        std::uniform_int_distribution<int> dist(min, max);
+        for (size_t i = 0; i < count; ++i) {
+            sequence.push_back(dist(gen_));
+        }
+        
+        return sequence;
+    }
+    
+    std::vector<int> generate_zipfian_search_sequence(size_t count, int min, int max) {
+        // Generate Zipfian-like distribution (skewed access pattern)
+        std::vector<int> sequence;
+        sequence.reserve(count);
+        
+        std::uniform_real_distribution<double> uniform(0.0, 1.0);
+        int range = max - min + 1;
+        
+        for (size_t i = 0; i < count; ++i) {
+            double u = uniform(gen_);
+            int rank = static_cast<int>(1.0 / std::pow(u, 1.0 / 1.1));
+            int value = min + ((rank - 1) % range);
+            sequence.push_back(value);
+        }
+        
+        return sequence;
+    }
+};
+
+// Benchmark result structure
+struct BenchmarkResult {
+    std::string tree_type;
+    std::string cache_type;
+    std::string storage_type;
+    size_t cache_size;
+    std::string key_type;
+    std::string value_type;
+    std::string operation;
+    size_t degree;
+    size_t record_count;
+    int run_id;
+    int thread_count;
+    Duration duration;
+    double throughput_ops_sec;
+    std::string timestamp;
+    std::string config_name;
+    
+#ifdef __CACHE_COUNTERS__
+    // Cache performance counters
+    uint64_t cache_hits = 0;
+    uint64_t cache_misses = 0;
+    uint64_t evictions = 0;
+    uint64_t dirty_evictions = 0;
+    double cache_hit_ratio = 0.0;
+#endif //__CACHE_COUNTERS__
+    
+    BenchmarkResult() = default;
+    
+    BenchmarkResult(const std::string& tree, const std::string& cache, const std::string& storage,
+                   size_t cache_sz, const std::string& key, const std::string& value,
+                   const std::string& op, size_t deg, size_t records, int run,
+                   int threads, const Duration& dur, const std::string& config = "")
+        : tree_type(tree), cache_type(cache), storage_type(storage), cache_size(cache_sz),
+          key_type(key), value_type(value), operation(op), degree(deg), 
+          record_count(records), run_id(run), thread_count(threads), duration(dur),
+          throughput_ops_sec(calculate_throughput(records, dur)), config_name(config) {
+        
+        // Generate timestamp
+        auto now = std::chrono::system_clock::now();
+        auto time_t = std::chrono::system_clock::to_time_t(now);
+        auto tm = *std::localtime(&time_t);
+        
+        char buffer[100];
+        std::strftime(buffer, sizeof(buffer), "%Y%m%d_%H%M%S", &tm);
+        timestamp = buffer;
+    }
+
+#ifdef __CACHE_COUNTERS__
+    // Constructor with cache counters
+    BenchmarkResult(const std::string& tree, const std::string& cache, const std::string& storage,
+                   size_t cache_sz, const std::string& key, const std::string& value,
+                   const std::string& op, size_t deg, size_t records, int run,
+                   int threads, const Duration& dur, const std::string& config,
+                   uint64_t hits, uint64_t misses, uint64_t evict, uint64_t dirty_evict)
+        : tree_type(tree), cache_type(cache), storage_type(storage), cache_size(cache_sz),
+          key_type(key), value_type(value), operation(op), degree(deg), 
+          record_count(records), run_id(run), thread_count(threads), duration(dur),
+          throughput_ops_sec(calculate_throughput(records, dur)), config_name(config),
+          cache_hits(hits), cache_misses(misses), evictions(evict), dirty_evictions(dirty_evict) {
+        
+        // Calculate cache hit ratio
+        uint64_t total_accesses = cache_hits + cache_misses;
+        cache_hit_ratio = total_accesses > 0 ? static_cast<double>(cache_hits) / total_accesses : 0.0;
+        
+        // Generate timestamp
+        auto now = std::chrono::system_clock::now();
+        auto time_t = std::chrono::system_clock::to_time_t(now);
+        auto tm = *std::localtime(&time_t);
+        
+        char buffer[100];
+        std::strftime(buffer, sizeof(buffer), "%Y%m%d_%H%M%S", &tm);
+        timestamp = buffer;
+    }
+#endif //__CACHE_COUNTERS__
+};
+
+// Utility functions for string conversion
+inline std::string to_string(const Duration& duration) {
+    return std::to_string(duration.count());
+}
+
+// Memory management utilities
+inline void clear_system_cache() {
+    // On Linux, this would require root privileges
+    // system("echo 3 > /proc/sys/vm/drop_caches");
+    // For now, just a placeholder
+}
+
+// Validation utilities
+inline bool validate_cache_type(const std::string& cache_type) {
+    return cache_type == "LRU" || cache_type == "SSARC" || cache_type == "CLOCK";
+}
+
+inline bool validate_storage_type(const std::string& storage_type) {
+    return storage_type == "VolatileStorage" || storage_type == "FileStorage";
+}
+
+inline bool validate_operation(const std::string& operation) {
+    return operation == "insert" || operation == "search" || operation == "delete";
+}
+
+inline bool validate_key_value_type(const std::string& type) {
+    return type == "int";
+}

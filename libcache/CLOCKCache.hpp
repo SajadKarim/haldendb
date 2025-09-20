@@ -11,6 +11,7 @@
 #include  <algorithm>
 #include <tuple>
 #include <condition_variable>
+#include <atomic>
 #include <assert.h>
 #include "IFlushCallback.h"
 #include "VariadicNthType.h"
@@ -86,6 +87,13 @@ private:
 	mutable std::shared_mutex m_mtxCache;
 	mutable std::shared_mutex m_mtxStorage;
 #endif //__CONCURRENT__
+
+#ifdef __CACHE_COUNTERS__
+	std::atomic<uint64_t> m_nCacheHits{0};
+	std::atomic<uint64_t> m_nCacheMisses{0};
+	std::atomic<uint64_t> m_nEvictions{0};
+	std::atomic<uint64_t> m_nDirtyEvictions{0};
+#endif //__CACHE_COUNTERS__
 
 public:
 	~CLOCKCache()
@@ -208,6 +216,10 @@ public:
 			m_clockBuffer[index].m_bReferenceBit = true;  // Set reference bit for CLOCK algorithm
 			ptrObject = m_clockBuffer[index].m_ptrObject;
 
+#ifdef __CACHE_COUNTERS__
+			m_nCacheHits.fetch_add(1, std::memory_order_relaxed);
+#endif //__CACHE_COUNTERS__
+
 			return CacheErrorCode::Success;
 		}
 
@@ -243,6 +255,10 @@ public:
 
 		if (ptrObject != nullptr)
 		{
+#ifdef __CACHE_COUNTERS__
+			m_nCacheMisses.fetch_add(1, std::memory_order_relaxed);
+#endif //__CACHE_COUNTERS__
+
 #ifdef __CONCURRENT__
 			std::unique_lock<std::shared_mutex> re_lock_cache(m_mtxCache);
 
@@ -689,6 +705,10 @@ private:
 				
 				// Flush to storage if dirty before evicting
 				if (m_clockBuffer[victimIndex].m_ptrObject->getDirtyFlag()) {
+#ifdef __CACHE_COUNTERS__
+					m_nDirtyEvictions.fetch_add(1, std::memory_order_relaxed);
+#endif //__CACHE_COUNTERS__
+
 					ObjectUIDType uidUpdated;
 					if (m_ptrStorage->addObject(m_clockBuffer[victimIndex].m_uidSelf, m_clockBuffer[victimIndex].m_ptrObject, uidUpdated) != CacheErrorCode::Success) {
 						std::cout << "Critical State: Failed to add object to Storage during eviction." << std::endl;
@@ -703,6 +723,10 @@ private:
 					
 					// Store the updated UID mapping for future lookups
 					m_mpUIDUpdates[m_clockBuffer[victimIndex].m_uidSelf] = std::make_pair(uidUpdated, m_clockBuffer[victimIndex].m_ptrObject);
+				} else {
+#ifdef __CACHE_COUNTERS__
+					m_nEvictions.fetch_add(1, std::memory_order_relaxed);
+#endif //__CACHE_COUNTERS__
 				}
 				
 				// Remove from objects map
@@ -760,6 +784,10 @@ private:
 						
 						// Flush to storage if dirty before evicting
 						if (m_clockBuffer[victimIndex].m_ptrObject->getDirtyFlag()) {
+#ifdef __CACHE_COUNTERS__
+							m_nDirtyEvictions.fetch_add(1, std::memory_order_relaxed);
+#endif //__CACHE_COUNTERS__
+
 							ObjectUIDType uidUpdated;
 							if (m_ptrStorage->addObject(m_clockBuffer[victimIndex].m_uidSelf, m_clockBuffer[victimIndex].m_ptrObject, uidUpdated) != CacheErrorCode::Success) {
 								std::cout << "Critical State: Failed to add object to Storage during second pass eviction." << std::endl;
@@ -774,6 +802,10 @@ private:
 							
 							// Store the updated UID mapping for future lookups
 							m_mpUIDUpdates[m_clockBuffer[victimIndex].m_uidSelf] = std::make_pair(uidUpdated, m_clockBuffer[victimIndex].m_ptrObject);
+						} else {
+#ifdef __CACHE_COUNTERS__
+							m_nEvictions.fetch_add(1, std::memory_order_relaxed);
+#endif //__CACHE_COUNTERS__
 						}
 						
 						// Remove from objects map
@@ -820,8 +852,10 @@ private:
 		
 		// Sweep through the circular buffer looking for a victim
 		do {
-			// Check if current slot is valid and has reference bit = 0
-			if (m_clockBuffer[m_clockHand].m_bValid && !m_clockBuffer[m_clockHand].m_bReferenceBit) {
+			// Check if current slot is valid, has reference bit = 0, and is not in use
+			if (m_clockBuffer[m_clockHand].m_bValid && 
+				!m_clockBuffer[m_clockHand].m_bReferenceBit &&
+				m_clockBuffer[m_clockHand].m_ptrObject.use_count() == 1) {
 				// Found victim - return this index (don't evict yet, just identify)
 				size_t victimIndex = m_clockHand;
 				// Move clock hand to next position
@@ -838,12 +872,20 @@ private:
 			
 		} while (m_clockHand != startHand);
 		
-		// If all items have reference bit set, return current hand position
-		if (m_clockBuffer[m_clockHand].m_bValid) {
-			size_t victimIndex = m_clockHand;
+		// Second pass: if all items have reference bit set, look for any item not in use
+		startHand = m_clockHand;
+		do {
+			if (m_clockBuffer[m_clockHand].m_bValid && 
+				m_clockBuffer[m_clockHand].m_ptrObject.use_count() == 1) {
+				size_t victimIndex = m_clockHand;
+				m_clockHand = (m_clockHand + 1) % m_nCacheCapacity;
+				return victimIndex;
+			}
+			
+			// Move clock hand to next position
 			m_clockHand = (m_clockHand + 1) % m_nCacheCapacity;
-			return victimIndex;
-		}
+			
+		} while (m_clockHand != startHand);
 		
 		return SIZE_MAX; // No valid items found
 	}
@@ -877,26 +919,21 @@ private:
 			
 			if (victimIndex == SIZE_MAX)
 			{
-				break; // No victim found
+				// No evictable victim found, cache will exceed capacity
+				break;
 			}
 			
 			Item& itemToFlush = m_clockBuffer[victimIndex];
 			
-			if (itemToFlush.m_ptrObject.use_count() > 1)
-			{
-				/* Info: 
-				 * Should proceed with another victim?
-				 * For now, we break to avoid infinite loops
-				 */
-				break; 
-			}
+			// findVictimForEviction() already ensures use_count == 1, so no need to check again
+			// But we still need to check if we can lock it for concurrent access
 
 			// Check if the object is in use
 			if (!itemToFlush.m_ptrObject->tryLockObject())
 			{
 				/* Info:
-				 * Should proceed with another victim?
-				 * For now, we break to avoid infinite loops
+				 * This shouldn't happen if findVictimForEviction() is working correctly,
+				 * but handle it gracefully to avoid infinite loops
 				 */
 				break;
 			}
@@ -977,19 +1014,13 @@ private:
 			
 			if (victimIndex == SIZE_MAX)
 			{
-				break; // No victim found
+				// No evictable victim found, cache will exceed capacity
+				break;
 			}
 			
 			Item& itemToFlush = m_clockBuffer[victimIndex];
 			
-			if (itemToFlush.m_ptrObject.use_count() > 1)
-			{
-				/* Info:
-				 * Should proceed with another victim?
-				 * For now, we break to avoid infinite loops
-				 */
-				break;
-			}
+			// findVictimForEviction() already ensures use_count == 1, so no need to check again
 
 			if (m_mpUIDUpdates.size() > 0)
 			{
@@ -1335,18 +1366,14 @@ private:
 		{
 			// Find victim using CLOCK algorithm
 			size_t victimIndex = findVictimForEviction();
-			if (victimIndex == SIZE_MAX) break;
+			if (victimIndex == SIZE_MAX) {
+				// No evictable victim found, cache will exceed capacity
+				break;
+			}
 
 			Item& victim = m_clockBuffer[victimIndex];
 			
-			if (victim.m_ptrObject.use_count() > 1)
-			{
-				/* Info:
-				 * Should proceed with the preceeding one?
-				 * But since each operation reorders the items at the end, therefore, the prceeding items would be in use as well!
-				 */
-				break;
-			}
+			// findVictimForEviction() already ensures use_count == 1, so no need to check again
 
 			if (m_mpUIDUpdates.size() > 0)
 			{
@@ -1409,4 +1436,43 @@ public:
 	{
 	}
 #endif //__TREE_WITH_CACHE__
+
+#ifdef __CACHE_COUNTERS__
+public:
+	// Cache counter access methods
+	uint64_t getCacheHits() const {
+		return m_nCacheHits.load(std::memory_order_relaxed);
+	}
+	
+	uint64_t getCacheMisses() const {
+		return m_nCacheMisses.load(std::memory_order_relaxed);
+	}
+	
+	uint64_t getEvictions() const {
+		return m_nEvictions.load(std::memory_order_relaxed);
+	}
+	
+	uint64_t getDirtyEvictions() const {
+		return m_nDirtyEvictions.load(std::memory_order_relaxed);
+	}
+	
+	uint64_t getTotalEvictions() const {
+		return m_nEvictions.load(std::memory_order_relaxed) + 
+		       m_nDirtyEvictions.load(std::memory_order_relaxed);
+	}
+	
+	double getCacheHitRatio() const {
+		uint64_t hits = m_nCacheHits.load(std::memory_order_relaxed);
+		uint64_t misses = m_nCacheMisses.load(std::memory_order_relaxed);
+		uint64_t total = hits + misses;
+		return total > 0 ? static_cast<double>(hits) / total : 0.0;
+	}
+	
+	void resetCounters() {
+		m_nCacheHits.store(0, std::memory_order_relaxed);
+		m_nCacheMisses.store(0, std::memory_order_relaxed);
+		m_nEvictions.store(0, std::memory_order_relaxed);
+		m_nDirtyEvictions.store(0, std::memory_order_relaxed);
+	}
+#endif //__CACHE_COUNTERS__
 };

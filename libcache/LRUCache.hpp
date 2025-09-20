@@ -12,6 +12,7 @@
 #include <tuple>
 #include <condition_variable>
 #include <assert.h>
+#include <atomic>
 #include "IFlushCallback.h"
 #include "VariadicNthType.h"
 
@@ -66,6 +67,14 @@ private:
 	int64_t m_nCacheCapacity;
 	std::unordered_map<ObjectUIDType, std::shared_ptr<Item>> m_mpObjects;
 	std::unordered_map<ObjectUIDType, std::pair<std::optional<ObjectUIDType>, ObjectTypePtr>> m_mpUIDUpdates;
+
+#ifdef __CACHE_COUNTERS__
+	// Cache performance counters
+	std::atomic<uint64_t> m_nCacheHits{0};
+	std::atomic<uint64_t> m_nCacheMisses{0};
+	std::atomic<uint64_t> m_nEvictions{0};
+	std::atomic<uint64_t> m_nDirtyEvictions{0};
+#endif //__CACHE_COUNTERS__
 
 #ifdef __CONCURRENT__
 	bool m_bStop;
@@ -183,6 +192,10 @@ public:
 			moveToFront(ptrItem);
 			ptrObject = ptrItem->m_ptrObject;
 
+#ifdef __CACHE_COUNTERS__
+			m_nCacheHits.fetch_add(1, std::memory_order_relaxed);
+#endif //__CACHE_COUNTERS__
+
 			return CacheErrorCode::Success;
 		}
 
@@ -218,6 +231,10 @@ public:
 
 		if (ptrObject != nullptr)
 		{
+#ifdef __CACHE_COUNTERS__
+			m_nCacheMisses.fetch_add(1, std::memory_order_relaxed);
+#endif //__CACHE_COUNTERS__
+
 			std::shared_ptr<Item> ptrItem = std::make_shared<Item>(uidTemp, ptrObject);
 
 #ifdef __CONCURRENT__
@@ -634,6 +651,52 @@ public:
 		return CacheErrorCode::Success;
 	}
 
+#ifdef __CACHE_COUNTERS__
+	// Cache performance counter accessors
+	uint64_t getCacheHits() const
+	{
+		return m_nCacheHits.load(std::memory_order_relaxed);
+	}
+
+	uint64_t getCacheMisses() const
+	{
+		return m_nCacheMisses.load(std::memory_order_relaxed);
+	}
+
+	uint64_t getEvictions() const
+	{
+		return m_nEvictions.load(std::memory_order_relaxed);
+	}
+
+	uint64_t getDirtyEvictions() const
+	{
+		return m_nDirtyEvictions.load(std::memory_order_relaxed);
+	}
+
+	// Calculate derived metrics
+	double getCacheHitRatio() const
+	{
+		uint64_t hits = getCacheHits();
+		uint64_t misses = getCacheMisses();
+		uint64_t total = hits + misses;
+		return total > 0 ? static_cast<double>(hits) / total : 0.0;
+	}
+
+	uint64_t getTotalEvictions() const
+	{
+		return getEvictions() + getDirtyEvictions();
+	}
+
+	// Reset counters (useful for benchmarking)
+	void resetCounters()
+	{
+		m_nCacheHits.store(0, std::memory_order_relaxed);
+		m_nCacheMisses.store(0, std::memory_order_relaxed);
+		m_nEvictions.store(0, std::memory_order_relaxed);
+		m_nDirtyEvictions.store(0, std::memory_order_relaxed);
+	}
+#endif //__CACHE_COUNTERS__
+
 private:
 	void moveToTail(std::shared_ptr<Item> tail, std::shared_ptr<Item> nodeToMove) 
 	{
@@ -876,6 +939,18 @@ private:
 
 			vtObjects.push_back(std::make_pair(ptrItemToFlush->m_uidSelf, std::make_pair(std::nullopt, ptrItemToFlush->m_ptrObject)));
 
+#ifdef __CACHE_COUNTERS__
+			// Track evictions - check if object is dirty
+			if (ptrItemToFlush->m_ptrObject->getDirtyFlag())
+			{
+				m_nDirtyEvictions.fetch_add(1, std::memory_order_relaxed);
+			}
+			else
+			{
+				m_nEvictions.fetch_add(1, std::memory_order_relaxed);
+			}
+#endif //__CACHE_COUNTERS__
+
 #ifdef __TRACK_CACHE_FOOTPRINT__
 			m_nCacheFootprint -= ptrItemToFlush->m_ptrObject->getMemoryFootprint();
 #endif //__TRACK_CACHE_FOOTPRINT__
@@ -954,6 +1029,7 @@ private:
 
 		vtObjects.clear();
 #else //__CONCURRENT__
+
 		while (m_mpObjects.size() > m_nCacheCapacity)
 		{
 			if (m_ptrTail->m_ptrObject.use_count() > 1)
@@ -972,6 +1048,9 @@ private:
 
 			if (m_ptrTail->m_ptrObject->getDirtyFlag())
 			{
+#ifdef __CACHE_COUNTERS__
+				m_nDirtyEvictions.fetch_add(1, std::memory_order_relaxed);
+#endif //__CACHE_COUNTERS__
 
 				ObjectUIDType uidUpdated;
 				if (m_ptrStorage->addObject(m_ptrTail->m_uidSelf, m_ptrTail->m_ptrObject, uidUpdated) != CacheErrorCode::Success)
@@ -988,6 +1067,11 @@ private:
 
 				m_mpUIDUpdates[m_ptrTail->m_uidSelf] = std::make_pair(uidUpdated, m_ptrTail->m_ptrObject);
 			}
+
+#ifdef __CACHE_COUNTERS__
+			// All evictions (both dirty and clean) should increment the general eviction counter
+			m_nEvictions.fetch_add(1, std::memory_order_relaxed);
+#endif //__CACHE_COUNTERS__
 
 			m_mpObjects.erase(m_ptrTail->m_uidSelf);
 
@@ -1038,6 +1122,18 @@ private:
 			std::shared_ptr<Item> ptrItemToFlush = m_ptrTail;
 
 			vtObjects.push_back(std::make_pair(ptrItemToFlush->m_uidSelf, std::make_pair(std::nullopt, ptrItemToFlush->m_ptrObject)));
+
+#ifdef __CACHE_COUNTERS__
+			// Track evictions - check if object is dirty
+			if (ptrItemToFlush->m_ptrObject->getDirtyFlag())
+			{
+				m_nDirtyEvictions.fetch_add(1, std::memory_order_relaxed);
+			}
+			else
+			{
+				m_nEvictions.fetch_add(1, std::memory_order_relaxed);
+			}
+#endif //__CACHE_COUNTERS__
 
 #ifdef __TRACK_CACHE_FOOTPRINT__
 			m_nCacheFootprint -= ptrItemToFlush->m_ptrObject->getMemoryFootprint();
