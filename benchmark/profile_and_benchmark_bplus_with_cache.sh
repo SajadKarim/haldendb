@@ -27,7 +27,7 @@ CACHE_TYPES=("LRU" "SSARC" "CLOCK")  # CLOCK cache now enabled and fixed
 STORAGE_TYPES=("VolatileStorage")
 CACHE_SIZE_PERCENTAGES=("5%")  # Cache sizes as percentages of estimated B+ tree pages
 PAGE_SIZES=(4096)
-MEMORY_SIZES=(1073741824)  # 1GB default
+MEMORY_SIZES=(4294967296)  # 1GB default
 
 # Tree types to test (BPlusStore configurations)
 TREES=("BPlusStore")
@@ -36,7 +36,7 @@ TREES=("BPlusStore")
 DEGREES=(64)
 
 # Operations to profile
-OPERATIONS=("insert" "search_random")
+OPERATIONS=("insert" "search_random" "search_sequential" "search_uniform" "search_zipfian" "delete")
 
 # Key-Value type combinations
 declare -A KEY_VALUE_COMBOS
@@ -47,7 +47,7 @@ KEY_VALUE_COMBOS["uint64_t_uint64_t"]="uint64_t uint64_t"
 
 # Record count for profiling
 RECORDS=(500000)
-RUNS=${RUNS:-1}  # Default to 3, but allow override via environment variable
+RUNS=${RUNS:-3}  # Default to 3, but allow override via environment variable
 THREADS=(4)
 
 # Perf events to collect (cache-focused)
@@ -351,7 +351,7 @@ run_full_cache_profiling_multi_threaded() {
     echo "Running multi-threaded BPlusStore cache profiling..."
     echo "Using threads: ${THREADS[*]}"
     
-    local CACHE_TYPES_LOCAL=("LRU")
+    local CACHE_TYPES_LOCAL=("LRU" "SSARC" "CLOCK")
     echo "Using cache types: ${CACHE_TYPES_LOCAL[*]}"
     
     local config_type="concurrent_default"    
@@ -610,7 +610,7 @@ show_usage() {
 case "${1:-full}" in
     "full")
         run_full_cache_profiling_single_threaded
-        #run_full_cache_profiling_multi_threaded
+        run_full_cache_profiling_multi_threaded
         echo ""
         echo "Both single-threaded and multi-threaded profiling completed. Merging all CSV files..."
         merge_csv_files
