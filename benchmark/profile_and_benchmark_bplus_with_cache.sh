@@ -8,26 +8,31 @@
 # - THREADS: Array of thread counts for concurrent operations (default: defined in script)
 
 # Configuration
-BENCHMARK_DIR="/home/skarim/workspace/code/haldendb_old/haldendb/benchmark/build"
+BENCHMARK_DIR="/home/skarim/Code/haldendb_ex/haldendb/benchmark/build"
 BENCHMARK_EXEC="$BENCHMARK_DIR/benchmark"
 
-# Create timestamped output directory
-TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-PROFILE_OUTPUT_DIR="$BENCHMARK_DIR/cache_profiling_results_${TIMESTAMP}"
-
-# Create output directory
-mkdir -p "$PROFILE_OUTPUT_DIR"
-
-echo "=========================================="
-echo "BPlusStore Cache Profiling Results Directory: $PROFILE_OUTPUT_DIR"
-echo "=========================================="
+# Create timestamped output directory (only if not running merge command)
+if [ "${1:-full}" != "merge" ]; then
+    TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+    PROFILE_OUTPUT_DIR="$BENCHMARK_DIR/cache_profiling_results_${TIMESTAMP}"
+    
+    # Create output directory
+    mkdir -p "$PROFILE_OUTPUT_DIR"
+    
+    echo "=========================================="
+    echo "BPlusStore Cache Profiling Results Directory: $PROFILE_OUTPUT_DIR"
+    echo "=========================================="
+else
+    # For merge command, we'll determine the directory later
+    PROFILE_OUTPUT_DIR=""
+fi
 
 # Cache-specific configuration arrays
 CACHE_TYPES=("LRU" "SSARC" "CLOCK")  # CLOCK cache now enabled and fixed
 STORAGE_TYPES=("VolatileStorage")
-CACHE_SIZE_PERCENTAGES=("5%")  # Cache sizes as percentages of estimated B+ tree pages
+CACHE_SIZE_PERCENTAGES=("2%" "5%" "10%" "25%")  # Cache sizes as percentages of estimated B+ tree pages
 PAGE_SIZES=(4096)
-MEMORY_SIZES=(4294967296)  # 1GB default
+MEMORY_SIZES=(34359738368)  # 1GB default
 
 # Tree types to test (BPlusStore configurations)
 TREES=("BPlusStore")
@@ -46,8 +51,8 @@ KEY_VALUE_COMBOS["uint64_t_uint64_t"]="uint64_t uint64_t"
 #KEY_VALUE_COMBOS["uint64_t_char16"]="uint64_t char16"
 
 # Record count for profiling
-RECORDS=(500000)
-RUNS=${RUNS:-3}  # Default to 3, but allow override via environment variable
+RECORDS=(1000000)
+RUNS=${RUNS:-10}  # Default to 3, but allow override via environment variable
 THREADS=(4)
 
 # Perf events to collect (cache-focused)
@@ -93,6 +98,148 @@ calculate_cache_size() {
     echo $cache_size
 }
 
+# Function to post-process CSV file to rename cache_size to cache_page_limit and add cache_size percentage
+post_process_csv_with_cache_info() {
+    local csv_file=$1
+    local cache_size_percentage=$2
+    
+    if [ ! -f "$csv_file" ]; then
+        echo "CSV file not found: $csv_file"
+        return 1
+    fi
+    
+    # Convert percentage string (e.g., "5%") to decimal (e.g., "0.05")
+    local percent_value=${cache_size_percentage%\%}
+    local decimal_value=$(echo "scale=4; $percent_value / 100" | bc -l | awk '{printf "%.4f", $0}')
+    
+    # Create temporary file
+    local temp_file="${csv_file}.tmp"
+    
+    # Process the CSV file
+    {
+        # Read and modify header
+        IFS= read -r header_line
+        # Replace cache_size with cache_page_limit and add new cache_size column after storage_type
+        modified_header=$(echo "$header_line" | sed 's/cache_size/cache_page_limit/' | sed 's/storage_type,/storage_type,cache_size,/')
+        echo "$modified_header"
+        
+        # Process data lines
+        while IFS= read -r line; do
+            # Add the cache_size percentage value after storage_type column (4th column)
+            # Split the line into fields
+            IFS=',' read -ra fields <<< "$line"
+            
+            # Insert cache_size percentage after storage_type (index 2, so insert at index 3)
+            new_line=""
+            for i in "${!fields[@]}"; do
+                if [ $i -eq 3 ]; then
+                    # After storage_type, add cache_size percentage
+                    new_line="${new_line}${decimal_value},"
+                fi
+                new_line="${new_line}${fields[$i]}"
+                if [ $i -lt $((${#fields[@]} - 1)) ]; then
+                    new_line="${new_line},"
+                fi
+            done
+            echo "$new_line"
+        done
+    } < "$csv_file" > "$temp_file"
+    
+    # Replace original file with modified version
+    mv "$temp_file" "$csv_file"
+    
+    # Fix formatting if needed
+    fix_cache_size_formatting "$csv_file"
+    
+    echo "Post-processed CSV file: $(basename "$csv_file") - Added cache_size percentage: $decimal_value"
+}
+
+# Function to fix cache_size formatting in existing CSV files (change .0500 to 0.0500)
+fix_cache_size_formatting() {
+    local csv_file=$1
+    
+    if [ ! -f "$csv_file" ]; then
+        echo "CSV file not found: $csv_file"
+        return 1
+    fi
+    
+    # Check if file has the new structure and needs formatting fix
+    local header_line=$(head -n 1 "$csv_file")
+    if [[ "$header_line" == *"cache_page_limit"* ]] && [[ "$header_line" == *"cache_size"* ]]; then
+        # Check if any line has .0500 format (missing leading zero)
+        if grep -q ",.0[0-9][0-9][0-9]," "$csv_file"; then
+            echo "Fixing cache_size formatting in: $(basename "$csv_file")"
+            # Use sed to add leading zero to cache_size values
+            sed -i 's/,\.\([0-9][0-9][0-9][0-9]\),/,0.\1,/g' "$csv_file"
+            echo "Fixed cache_size formatting: $(basename "$csv_file")"
+        fi
+    fi
+}
+
+# Function to post-process existing CSV files that have old structure (for legacy files)
+post_process_legacy_csv_with_cache_info() {
+    local csv_file=$1
+    local cache_size_percentage=${2:-"5%"}  # Default to 5% if not provided
+    
+    if [ ! -f "$csv_file" ]; then
+        echo "CSV file not found: $csv_file"
+        return 1
+    fi
+    
+    # Check if file already has the new structure
+    local header_line=$(head -n 1 "$csv_file")
+    if [[ "$header_line" == *"cache_page_limit"* ]] && [[ "$header_line" == *"cache_size"* ]]; then
+        echo "CSV file already has new structure: $(basename "$csv_file")"
+        # Fix formatting if needed
+        fix_cache_size_formatting "$csv_file"
+        return 0
+    fi
+    
+    # Convert percentage string (e.g., "5%") to decimal (e.g., "0.05")
+    local percent_value=${cache_size_percentage%\%}
+    local decimal_value=$(echo "scale=4; $percent_value / 100" | bc -l | awk '{printf "%.4f", $0}')
+    
+    echo "Post-processing legacy CSV file: $(basename "$csv_file") with cache_size percentage: $decimal_value"
+    
+    # Create temporary file
+    local temp_file="${csv_file}.tmp"
+    
+    # Process the CSV file
+    {
+        # Read and modify header
+        IFS= read -r header_line
+        # Replace cache_size with cache_page_limit and add new cache_size column after storage_type
+        modified_header=$(echo "$header_line" | sed 's/cache_size/cache_page_limit/' | sed 's/storage_type,/storage_type,cache_size,/')
+        echo "$modified_header"
+        
+        # Process data lines
+        while IFS= read -r line; do
+            # Add the cache_size percentage value after storage_type column (4th column)
+            # Split the line into fields
+            IFS=',' read -ra fields <<< "$line"
+            
+            # Insert cache_size percentage after storage_type (index 2, so insert at index 3)
+            new_line=""
+            for i in "${!fields[@]}"; do
+                if [ $i -eq 3 ]; then
+                    # After storage_type, add cache_size percentage
+                    new_line="${new_line}${decimal_value},"
+                fi
+                new_line="${new_line}${fields[$i]}"
+                if [ $i -lt $((${#fields[@]} - 1)) ]; then
+                    new_line="${new_line},"
+                fi
+            done
+            echo "$new_line"
+        done
+    } < "$csv_file" > "$temp_file"
+    
+    # Replace original file with modified version
+    mv "$temp_file" "$csv_file"
+    
+    echo "Post-processed legacy CSV file: $(basename "$csv_file") - Added cache_size percentage: $decimal_value"
+}
+
 # Function to build with cache support
 build_cache_configuration() {
     local config_type=$1  # "non_concurrent" or "concurrent"
@@ -112,13 +259,13 @@ build_cache_configuration() {
     # Configure and build based on type
     if [ "$config_type" = "non_concurrent_default" ]; then
         echo "Building with cache + non_concurrent_default + cache counters ..."
-        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D__TREE_WITH_CACHE__ $RELEASE_OPTS"
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D__TREE_WITH_CACHE__ -D__CACHE_COUNTERS__ $RELEASE_OPTS"
     elif [ "$config_type" = "concurrent_default" ]; then
         echo "Building with cache + concurrent_default + cache counters ..."
-        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D__TREE_WITH_CACHE__ -D__CONCURRENT__ $RELEASE_OPTS"
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D__TREE_WITH_CACHE__ -D__CONCURRENT__ -D__CACHE_COUNTERS__ $RELEASE_OPTS"
     else
         echo "Building with cache + default + cache counters ..."
-        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D__TREE_WITH_CACHE__ $RELEASE_OPTS"
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D__TREE_WITH_CACHE__ -D__CACHE_COUNTERS__ $RELEASE_OPTS"
     fi
     
     make -j$(nproc)
@@ -149,6 +296,7 @@ run_cache_profiled_benchmark() {
     local records=${11}
     local config_name=${12}
     local thread_count=${13}
+    local cache_size_percentage=${14}  # New parameter for percentage
     
     local profile_name="${tree_type}_${cache_type}_${storage_type}_${cache_size}_${page_size}_${memory_size}_${key_type}_${value_type}_${operation}_${degree}_${records}_threads${thread_count}"
     
@@ -169,35 +317,52 @@ run_cache_profiled_benchmark() {
     echo "Output: $perf_output"
     echo "=========================================="
     
-    # Run benchmark (simplified without perf for now)
+    # Run benchmark with perf stat (statistical profiling)
     cd "$BENCHMARK_DIR"
-    ./benchmark \
-        --config "bm_cache" \
-        --cache-type "$cache_type" \
-        --storage-type "$storage_type" \
-        --cache-size "$cache_size" \
-        --page-size "$page_size" \
-        --memory-size "$memory_size" \
-        --tree-type "$tree_type" \
-        --key-type "$key_type" \
-        --value-type "$value_type" \
-        --operation "$operation" \
-        --degree "$degree" \
-        --records "$records" \
-        --runs "$RUNS" \
-        --threads "$thread_count" \
-        --output-dir "$run_folder" \
-        --config-name "$config_name"
-    
-    # Save basic performance info to perf output file for compatibility
-    echo "# Benchmark completed at $(date)" > "$perf_output"
-    echo "# Command: ./benchmark --config bm_cache --cache-type $cache_type --storage-type $storage_type --cache-size $cache_size --operation $operation --degree $degree --records $records --runs $RUNS --threads $thread_count" >> "$perf_output"
+    perf stat -e "$PERF_EVENTS" \
+              -o "$perf_output" \
+              numactl --cpunodebind=0 --membind=0 \
+              ./benchmark \
+              --config "bm_cache" \
+              --cache-type "$cache_type" \
+              --storage-type "$storage_type" \
+              --cache-size "$cache_size" \
+              --page-size "$page_size" \
+              --memory-size "$memory_size" \
+              --tree-type "$tree_type" \
+              --key-type "$key_type" \
+              --value-type "$value_type" \
+              --operation "$operation" \
+              --degree "$degree" \
+              --records "$records" \
+              --runs "$RUNS" \
+              --threads "$thread_count" \
+              --output-dir "$run_folder" \
+              --config-name "$config_name"
     
     # Also run with perf record for detailed analysis (optional)
     if [ "$DETAILED_PROFILING" = "true" ]; then
         echo "Running detailed profiling with perf record..."
-        echo "# Detailed profiling disabled for now due to perf issues" > "$perf_data"
-        echo "# Enable by fixing perf command in script" >> "$perf_data"
+        perf record -e cycles,cache-misses \
+                    -o "$perf_data" \
+                    numactl --cpunodebind=0 --membind=0 \
+                    ./benchmark \
+                    --config "bm_cache" \
+                    --cache-type "$cache_type" \
+                    --storage-type "$storage_type" \
+                    --cache-size "$cache_size" \
+                    --page-size "$page_size" \
+                    --memory-size "$memory_size" \
+                    --tree-type "$tree_type" \
+                    --key-type "$key_type" \
+                    --value-type "$value_type" \
+                    --operation "$operation" \
+                    --degree "$degree" \
+                    --records "$records" \
+                    --runs "$RUNS" \
+                    --threads "$thread_count" \
+                    --output-dir "$run_folder" \
+                    --config-name "$config_name"
     fi
     
     # Rename the CSV file to match the perf file naming convention
@@ -206,6 +371,11 @@ run_cache_profiled_benchmark() {
         local target_csv="$run_folder/${config_name}_${profile_name}.csv"
         mv "$latest_csv" "$target_csv"
         echo "CSV file renamed to: $(basename "$target_csv")"
+        
+        # Post-process the CSV file to add cache size percentage and rename cache_size column
+        if [ -n "$cache_size_percentage" ]; then
+            post_process_csv_with_cache_info "$target_csv" "$cache_size_percentage"
+        fi
     else
         echo "WARNING: No CSV file found in $run_folder with pattern benchmark_*.csv"
         echo "Checking for any CSV files in the directory:"
@@ -310,7 +480,7 @@ run_full_cache_profiling_with_params() {
                                                 ((current_combination++))
                                                 echo "Progress: $current_combination/$total_combinations ($config_id)"
                                                 
-                                                run_cache_profiled_benchmark "$tree" "$cache_type" "$storage_type" "$actual_cache_size" "$page_size" "$memory_size" "$key_type" "$value_type" "$operation" "$degree" "$records" "$config_id" "$thread_count"
+                                                run_cache_profiled_benchmark "$tree" "$cache_type" "$storage_type" "$actual_cache_size" "$page_size" "$memory_size" "$key_type" "$value_type" "$operation" "$degree" "$records" "$config_id" "$thread_count" "$cache_size_percentage"
                                                 
                                                 # Small delay between runs to let system settle
                                                 sleep 5
@@ -508,14 +678,131 @@ analyze_cache_results() {
 }
 
 # Function to merge all CSV files from benchmark runs into a single combined CSV file
+# Function to parse perf data from .prf file into CSV format
+parse_perf_data() {
+    local prf_file=$1
+    
+    if [ ! -f "$prf_file" ]; then
+        echo "0,0,0,0,0,0,0,0,0,0,0.0,0.0,0.0"
+        return
+    fi
+    
+    # Initialize variables with default values
+    local cache_misses=0
+    local cache_references=0
+    local cycles=0
+    local instructions=0
+    local branch_misses=0
+    local page_faults=0
+    local l1_dcache_load_misses=0
+    local l1_dcache_loads=0
+    local llc_load_misses=0
+    local llc_loads=0
+    local time_elapsed=0.0
+    local user_time=0.0
+    local sys_time=0.0
+    
+    # Parse the perf data
+    while IFS= read -r line; do
+        # Remove leading/trailing whitespace and commas
+        line=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/,//g')
+        
+        if [[ $line =~ ^([0-9]+)[[:space:]]+cache-misses ]]; then
+            cache_misses=${BASH_REMATCH[1]}
+        elif [[ $line =~ ^([0-9]+)[[:space:]]+cache-references ]]; then
+            cache_references=${BASH_REMATCH[1]}
+        elif [[ $line =~ ^([0-9]+)[[:space:]]+cycles ]]; then
+            cycles=${BASH_REMATCH[1]}
+        elif [[ $line =~ ^([0-9]+)[[:space:]]+instructions ]]; then
+            instructions=${BASH_REMATCH[1]}
+        elif [[ $line =~ ^([0-9]+)[[:space:]]+branch-misses ]]; then
+            branch_misses=${BASH_REMATCH[1]}
+        elif [[ $line =~ ^([0-9]+)[[:space:]]+page-faults ]]; then
+            page_faults=${BASH_REMATCH[1]}
+        elif [[ $line =~ ^([0-9]+)[[:space:]]+L1-dcache-load-misses ]]; then
+            l1_dcache_load_misses=${BASH_REMATCH[1]}
+        elif [[ $line =~ ^([0-9]+)[[:space:]]+L1-dcache-loads ]]; then
+            l1_dcache_loads=${BASH_REMATCH[1]}
+        elif [[ $line =~ ^([0-9]+)[[:space:]]+LLC-load-misses ]]; then
+            llc_load_misses=${BASH_REMATCH[1]}
+        elif [[ $line =~ ^([0-9]+)[[:space:]]+LLC-loads ]]; then
+            llc_loads=${BASH_REMATCH[1]}
+        elif [[ $line =~ ^[[:space:]]*([0-9]+\.[0-9]+)[[:space:]]+seconds[[:space:]]+time[[:space:]]+elapsed ]]; then
+            time_elapsed=${BASH_REMATCH[1]}
+        elif [[ $line =~ ^[[:space:]]*([0-9]+\.[0-9]+)[[:space:]]+seconds[[:space:]]+user ]]; then
+            user_time=${BASH_REMATCH[1]}
+        elif [[ $line =~ ^[[:space:]]*([0-9]+\.[0-9]+)[[:space:]]+seconds[[:space:]]+sys ]]; then
+            sys_time=${BASH_REMATCH[1]}
+        fi
+    done < "$prf_file"
+    
+    # Output as CSV format
+    echo "$cache_misses,$cache_references,$cycles,$instructions,$branch_misses,$page_faults,$l1_dcache_load_misses,$l1_dcache_loads,$llc_load_misses,$llc_loads,$time_elapsed,$user_time,$sys_time"
+}
+
+# Function to merge CSV with perf data
+merge_csv_with_perf_data() {
+    local csv_file=$1
+    local prf_file=$2
+    local output_file=$3
+    
+    if [ ! -f "$csv_file" ]; then
+        echo "CSV file not found: $csv_file"
+        return 1
+    fi
+    
+    # Parse perf data
+    local perf_data=$(parse_perf_data "$prf_file")
+    
+    # Read the CSV file
+    local header_line=$(head -n 1 "$csv_file")
+    
+    # Add perf columns to header
+    local new_header="${header_line},perf_cache_misses,perf_cache_references,perf_cycles,perf_instructions,perf_branch_misses,perf_page_faults,perf_l1_dcache_load_misses,perf_l1_dcache_loads,perf_llc_load_misses,perf_llc_loads,perf_time_elapsed,perf_user_time,perf_sys_time"
+    
+    # Write new header
+    echo "$new_header" > "$output_file"
+    
+    # Process data lines
+    tail -n +2 "$csv_file" | while IFS= read -r line; do
+        echo "${line},${perf_data}" >> "$output_file"
+    done
+}
+
 merge_csv_files() {
+    local target_dir=${1:-$PROFILE_OUTPUT_DIR}
+    
     echo "=========================================="
-    echo "Merging all CSV files from benchmark runs"
+    echo "Merging all CSV files from benchmark runs with perf data"
     echo "=========================================="
+    
+    # If target_dir doesn't exist, try to find the most recent results directory with CSV files
+    if [ ! -d "$target_dir" ] || [ -z "$(ls -A "$target_dir" 2>/dev/null)" ]; then
+        echo "Target directory empty or not found: $target_dir"
+        echo "Looking for existing results directories with CSV files..."
+        
+        local found_dir=""
+        for dir in $(ls -td "$BENCHMARK_DIR"/cache_profiling_results_* 2>/dev/null); do
+            if [ -d "$dir" ] && [ -n "$(find "$dir" -name "*.csv" -type f 2>/dev/null | head -1)" ]; then
+                found_dir="$dir"
+                break
+            fi
+        done
+        
+        if [ -n "$found_dir" ]; then
+            target_dir="$found_dir"
+            echo "Using results directory with CSV files: $target_dir"
+        else
+            echo "No results directories with CSV files found in $BENCHMARK_DIR"
+            return 1
+        fi
+    fi
     
     # Create combined CSV file with timestamp
     local merge_timestamp=$(date +"%Y%m%d_%H%M%S")
-    local combined_csv="$PROFILE_OUTPUT_DIR/combined_benchmark_results_${merge_timestamp}.csv"
+    local combined_csv="$target_dir/combined_benchmark_results_with_perf_${merge_timestamp}.csv"
+    local temp_dir="$target_dir/temp_merge_$$"
+    mkdir -p "$temp_dir"
     
     # Initialize header written flag
     local header_written=false
@@ -523,16 +810,17 @@ merge_csv_files() {
     local processed_files=0
     
     # Count total CSV files first
-    echo "Scanning for CSV files in: $PROFILE_OUTPUT_DIR"
-    for csv_file in "$PROFILE_OUTPUT_DIR"/*/*.csv; do
+    echo "Scanning for CSV files in: $target_dir"
+    for csv_file in "$target_dir"/*/*.csv; do
         if [ -f "$csv_file" ]; then
             ((total_files++))
         fi
     done
     
     if [ $total_files -eq 0 ]; then
-        echo "No CSV files found in $PROFILE_OUTPUT_DIR"
+        echo "No CSV files found in $target_dir"
         echo "Make sure benchmark runs have completed successfully."
+        rm -rf "$temp_dir"
         return 1
     fi
     
@@ -541,24 +829,37 @@ merge_csv_files() {
     echo ""
     
     # Process each CSV file
-    for csv_file in "$PROFILE_OUTPUT_DIR"/*/*.csv; do
+    for csv_file in "$target_dir"/*/*.csv; do
         if [ -f "$csv_file" ]; then
             ((processed_files++))
             local folder_name=$(basename "$(dirname "$csv_file")")
+            local base_name=$(basename "$csv_file" .csv)
+            local prf_file="$(dirname "$csv_file")/${base_name}.prf"
+            local temp_csv="$temp_dir/temp_${processed_files}.csv"
+            
             echo "Processing [$processed_files/$total_files]: $folder_name"
             
+            # Post-process legacy CSV files to add cache_size percentage if needed
+            post_process_legacy_csv_with_cache_info "$csv_file" "5%"
+            
+            # Merge CSV with perf data
+            merge_csv_with_perf_data "$csv_file" "$prf_file" "$temp_csv"
+            
             if [ "$header_written" = false ]; then
-                # Write header from first file
-                head -n 1 "$csv_file" > "$combined_csv"
+                # Write header from first processed file
+                head -n 1 "$temp_csv" > "$combined_csv"
                 header_written=true
-                echo "  Header written from first file"
+                echo "  Header with perf columns written"
             fi
             
             # Append data lines (skip header)
-            tail -n +2 "$csv_file" >> "$combined_csv"
-            echo "  Data appended"
+            tail -n +2 "$temp_csv" >> "$combined_csv"
+            echo "  Data with perf metrics appended"
         fi
     done
+    
+    # Clean up temp directory
+    rm -rf "$temp_dir"
     
     # Count total lines in combined file
     local total_lines=$(wc -l < "$combined_csv")
@@ -566,11 +867,15 @@ merge_csv_files() {
     
     echo ""
     echo "=========================================="
-    echo "CSV Merge Completed Successfully!"
+    echo "CSV Merge with Perf Data Completed Successfully!"
     echo "=========================================="
     echo "Files processed: $processed_files"
     echo "Combined file: $combined_csv"
     echo "Total lines: $total_lines (1 header + $data_lines data lines)"
+    echo "Perf columns added: perf_cache_misses, perf_cache_references, perf_cycles, perf_instructions,"
+    echo "                   perf_branch_misses, perf_page_faults, perf_l1_dcache_load_misses,"
+    echo "                   perf_l1_dcache_loads, perf_llc_load_misses, perf_llc_loads,"
+    echo "                   perf_time_elapsed, perf_user_time, perf_sys_time"
     echo "=========================================="
     
     return 0

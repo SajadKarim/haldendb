@@ -285,6 +285,9 @@ std::vector<BenchmarkResult> run_benchmark_configuration(
                   << ": " << duration_to_microseconds(duration) << " μs"
                   << " (" << std::fixed << std::setprecision(2) << result.throughput_ops_sec << " ops/sec)"
                   << std::endl;
+
+            std::cout << "sleep for 5 mins.................................." << std::endl;
+            std::this_thread::sleep_for(std::chrono::seconds(5));
     }
     
     return results;
