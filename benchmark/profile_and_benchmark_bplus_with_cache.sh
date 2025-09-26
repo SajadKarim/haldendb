@@ -112,13 +112,13 @@ build_cache_configuration() {
     # Configure and build based on type
     if [ "$config_type" = "non_concurrent_default" ]; then
         echo "Building with cache + non_concurrent_default + cache counters ..."
-        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D__TREE_WITH_CACHE__ $RELEASE_OPTS"
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D__TREE_WITH_CACHE__ -D__CACHE_COUNTERS__ $RELEASE_OPTS"
     elif [ "$config_type" = "concurrent_default" ]; then
         echo "Building with cache + concurrent_default + cache counters ..."
-        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D__TREE_WITH_CACHE__ -D__CONCURRENT__ $RELEASE_OPTS"
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D__TREE_WITH_CACHE__ -D__CONCURRENT__ -D__CACHE_COUNTERS__ $RELEASE_OPTS"
     else
         echo "Building with cache + default + cache counters ..."
-        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D__TREE_WITH_CACHE__ $RELEASE_OPTS"
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D__TREE_WITH_CACHE__ -D__CACHE_COUNTERS__ $RELEASE_OPTS"
     fi
     
     make -j$(nproc)
