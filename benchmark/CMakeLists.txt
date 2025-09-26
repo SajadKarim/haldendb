@@ -3,20 +3,36 @@ cmake_minimum_required(VERSION 3.10)
 project(haldendb_benchmark VERSION 1.0)
 
 # Set C++ standard
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+#set(CMAKE_CXX_STANDARD 20)
+#set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Find required packages
-find_package(glog 0.7.0 REQUIRED)
+#find_package(glog 0.7.0 REQUIRED)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2")
 
 # Set build type to Release by default
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
+# Configure build-specific flags
+set(CMAKE_CXX_FLAGS_DEBUG "-g3 -O0 -ggdb3 -fno-omit-frame-pointer")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -march=native -mtune=native")
+set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -g -DNDEBUG -march=native -mtune=native")
+
 # Create compiler flags interface library
 add_library(haldendb_compiler_flags INTERFACE)
 target_compile_features(haldendb_compiler_flags INTERFACE cxx_std_20)
+
+# Find required packages
+find_package(Threads REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(PMEM REQUIRED libpmem)
+
+# Conditional assertions - only enable in Debug mode
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    add_compile_definitions(__ENABLE_ASSERTS__)
+endif()
 
 # Add compile definitions based on build configuration
 # These can be overridden by command line -DCMAKE_CXX_FLAGS
@@ -40,7 +56,7 @@ add_subdirectory(../libcache ${PROJECT_BINARY_DIR}/libcache)
 add_subdirectory(../libbtree ${PROJECT_BINARY_DIR}/libbtree)
 
 # Set compiler
-set(CMAKE_CXX_COMPILER g++)
+set(CMAKE_CXX_COMPILER g++-11)
 
 # Create benchmark executable
 add_executable(benchmark benchmark.cpp)
@@ -51,39 +67,33 @@ set_target_properties(benchmark PROPERTIES
     CXX_STANDARD_REQUIRED ON
 )
 
-# Compiler-specific optimizations for Release builds
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
+target_compile_options(benchmark PRIVATE -mbmi)
+
+# Build-type specific compile options
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    # Additional compile options for debugging deadlocks
     target_compile_options(benchmark PRIVATE
-        -O3
-        -DNDEBUG
-        -march=native
-        -mtune=native
-        -Wall
-        -Wextra
-        -Wno-unused-parameter
-        -Wno-switch
-        -Wno-unused-variable
-        -Wno-class-memaccess
-        -Wno-sign-compare
+        -g3      # Maximum debug information
+        -O0      # No optimization for better debugging
+        -ggdb3   # GDB-specific debug info
+        -fno-omit-frame-pointer  # Keep frame pointers for better stack traces
+        -Wno-unused-variable  # Ignore unused variable warnings
+        -Wno-endif-labels     # Ignore endif label warnings
+        -fno-optimize-sibling-calls  # Better stack traces
     )
-elseif(CMAKE_BUILD_TYPE STREQUAL "Debug")
+else()
+    # Release optimizations - only add warning suppressions
     target_compile_options(benchmark PRIVATE
-        -O0
-        -g3
-        -ggdb3
-        -Wall
-        -Wextra
-        -DDEBUG
+        -Wno-unused-variable  # Ignore unused variable warnings
+        -Wno-endif-labels     # Ignore endif label warnings
     )
 endif()
 
 # Link libraries
-target_link_libraries(benchmark PUBLIC 
-    libcache 
-    libbtree 
-    haldendb_compiler_flags
-    glog::glog
-)
+target_link_libraries(benchmark PUBLIC libcache haldendb_compiler_flags)
+target_link_libraries(benchmark PUBLIC libbtree haldendb_compiler_flags)
+target_link_libraries(benchmark PRIVATE Threads::Threads)
+target_link_libraries(benchmark PRIVATE ${PMEM_LIBRARIES})
 
 # Include directories
 target_include_directories(benchmark PUBLIC
@@ -91,6 +101,7 @@ target_include_directories(benchmark PUBLIC
     "${PROJECT_SOURCE_DIR}/../libcache"
     "${PROJECT_SOURCE_DIR}/../libbtree"
     "${PROJECT_SOURCE_DIR}"
+    ${PMEM_INCLUDE_DIRS}
 )
 
 # Add custom targets for different build configurations

@@ -200,7 +200,8 @@ inline std::string generate_filename(const std::string& type, DistributionType d
         case DistributionType::Zipfian: dist_name = "zipfian"; break;
         case DistributionType::Uniform: dist_name = "uniform"; break;
     }
-    return "data/" + type + "_" + dist_name + "_" + std::to_string(count) + ".dat";
+    // Use absolute path to create data files outside build folder
+    return "/home/skarim/Code/haldendb_ex/haldendb/benchmark/data/" + type + "_" + dist_name + "_" + std::to_string(count) + ".dat";
 }
 
 // Create workload for specific type and distribution
@@ -224,7 +225,7 @@ void create_workload(DistributionType distribution, size_t count) {
     }
     
     // Create data directory if it doesn't exist
-    std::filesystem::create_directories("data");
+    std::filesystem::create_directories("/home/skarim/Code/haldendb_ex/haldendb/benchmark/data");
     
     // Generate data
     std::vector<T> data;

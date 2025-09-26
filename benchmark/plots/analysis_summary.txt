@@ -1,0 +1,99 @@
+CACHE BENCHMARK ANALYSIS SUMMARY REPORT
+============================================================
+
+Dataset Overview:
+- Total records: 108
+- Cache types tested: CLOCK, LRU, SSARC
+- Operations tested: delete, insert, search_random, search_sequential, search_uniform, search_zipfian
+- Runs per configuration: 3
+- Thread count: 4
+- Record count: 500,000
+- Cache size: 456 pages (5.0%)
+
+PERFORMANCE SUMMARY BY CACHE TYPE:
+========================================
+
+1. CLOCK Cache:
+   Average Throughput: 683806.93 ops/sec
+   Peak Throughput: 2342691.95 ops/sec
+   Average Hit Ratio: 0.7615 (76.1%)
+   Average IPC: 0.5865
+   Performance Consistency: 1.0502 (lower is better)
+   Best Operation: search_zipfian
+
+2. LRU Cache:
+   Average Throughput: 393798.37 ops/sec
+   Peak Throughput: 1040454.15 ops/sec
+   Average Hit Ratio: 0.7780 (77.8%)
+   Average IPC: 0.5908
+   Performance Consistency: 0.8643 (lower is better)
+   Best Operation: search_zipfian
+
+3. SSARC Cache:
+   Average Throughput: 393299.56 ops/sec
+   Peak Throughput: 1029587.42 ops/sec
+   Average Hit Ratio: 0.8135 (81.3%)
+   Average IPC: 0.5920
+   Performance Consistency: 0.8444 (lower is better)
+   Best Operation: search_zipfian
+
+
+OPERATION ANALYSIS:
+====================
+
+Delete:
+   Best Cache: CLOCK
+   Best Throughput: 467660.31 ops/sec
+   Average Hit Ratio: 0.7390
+   Performance Ranking: CLOCK > SSARC > LRU
+
+Insert:
+   Best Cache: CLOCK
+   Best Throughput: 512761.78 ops/sec
+   Average Hit Ratio: 0.7527
+   Performance Ranking: CLOCK > SSARC > LRU
+
+Search Random:
+   Best Cache: CLOCK
+   Best Throughput: 764060.86 ops/sec
+   Average Hit Ratio: 0.7249
+   Performance Ranking: CLOCK > SSARC > LRU
+
+Search Sequential:
+   Best Cache: CLOCK
+   Best Throughput: 2123198.91 ops/sec
+   Average Hit Ratio: 0.8807
+   Performance Ranking: CLOCK > LRU > SSARC
+
+Search Uniform:
+   Best Cache: CLOCK
+   Best Throughput: 788390.44 ops/sec
+   Average Hit Ratio: 0.7250
+   Performance Ranking: CLOCK > SSARC > LRU
+
+Search Zipfian:
+   Best Cache: CLOCK
+   Best Throughput: 2342691.95 ops/sec
+   Average Hit Ratio: 0.8837
+   Performance Ranking: CLOCK > LRU > SSARC
+
+
+KEY INSIGHTS:
+===============
+• Overall Best Cache: CLOCK
+• Best for Sequential Access: CLOCK
+• Best for Random Access: CLOCK
+• Best for Zipfian Access: CLOCK
+• Highest Cache Hit Ratio: SSARC
+• Most CPU Efficient: SSARC
+• Most Consistent Performance: SSARC
+
+
+RECOMMendations:
+=================
+• For general-purpose workloads: Use CLOCK
+• For sequential access patterns: Use CLOCK
+• For random access patterns: Use CLOCK
+• For skewed access patterns: Use CLOCK
+• For predictable performance: Use SSARC
+• Performance improvement from best to worst cache: 73.9%

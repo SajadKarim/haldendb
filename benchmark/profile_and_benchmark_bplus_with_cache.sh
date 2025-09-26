@@ -8,7 +8,9 @@
 # - THREADS: Array of thread counts for concurrent operations (default: defined in script)
 
 # Configuration
-BENCHMARK_DIR="/home/skarim/Code/haldendb_ex/haldendb/benchmark/build"
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BENCHMARK_DIR="$SCRIPT_DIR/build"
 BENCHMARK_EXEC="$BENCHMARK_DIR/benchmark"
 
 # Create timestamped output directory (only if not running merge command)
@@ -29,8 +31,8 @@ fi
 
 # Cache-specific configuration arrays
 CACHE_TYPES=("LRU" "SSARC" "CLOCK")  # CLOCK cache now enabled and fixed
-STORAGE_TYPES=("VolatileStorage")
-CACHE_SIZE_PERCENTAGES=("2%" "5%" "10%" "25%")  # Cache sizes as percentages of estimated B+ tree pages
+STORAGE_TYPES=("VolatileStorage" "FileStorage" "PMemStorage")
+CACHE_SIZE_PERCENTAGES=("2%" "10%" "20%")  # Cache sizes as percentages of estimated B+ tree pages
 PAGE_SIZES=(4096)
 MEMORY_SIZES=(34359738368)  # 1GB default
 
@@ -52,7 +54,7 @@ KEY_VALUE_COMBOS["uint64_t_uint64_t"]="uint64_t uint64_t"
 
 # Record count for profiling
 RECORDS=(1000000)
-RUNS=${RUNS:-10}  # Default to 3, but allow override via environment variable
+RUNS=${RUNS:-3}  # Default to 3, but allow override via environment variable
 THREADS=(4)
 
 # Perf events to collect (cache-focused)

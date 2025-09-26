@@ -12,8 +12,10 @@
 // File paths for storage
 #ifdef _MSC_VER
 #define FILE_STORAGE_PATH "c:\\filestore.hdb"
+#define PMEM_STORAGE_PATH "c:\\pmemstore.hdb"
 #else
-#define FILE_STORAGE_PATH "./filestore.hdb"
+#define FILE_STORAGE_PATH "/home/skarim/file_storage.bin"
+#define PMEM_STORAGE_PATH "/mnt/tmpfs/pmem_storage.bin"
 #endif
 
 // Benchmark configuration constants
@@ -332,7 +334,7 @@ inline bool validate_cache_type(const std::string& cache_type) {
 }
 
 inline bool validate_storage_type(const std::string& storage_type) {
-    return storage_type == "VolatileStorage" || storage_type == "FileStorage";
+    return storage_type == "VolatileStorage" || storage_type == "FileStorage" || storage_type == "PMemStorage";
 }
 
 inline bool validate_operation(const std::string& operation) {

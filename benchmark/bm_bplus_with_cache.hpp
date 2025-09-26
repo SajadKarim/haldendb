@@ -25,6 +25,7 @@
 #include "CLOCKCache.hpp"
 #include "VolatileStorage.hpp"
 #include "FileStorage.hpp"
+#include "PMemStorage.hpp"
 #include "LRUCacheObject.hpp"
 #include "SSARCCacheObject.hpp"
 #include "CLOCKCacheObject.hpp"
@@ -64,6 +65,11 @@ typedef BPlusStore<SSARCCallback, KeyType, ValueType, SSARCCache<SSARCCallback, 
 
 typedef BPlusStore<CLOCKCallback, KeyType, ValueType, CLOCKCache<CLOCKCallback, VolatileStorage<CLOCKCallback, ObjectUIDType, CLOCKCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreCLOCKVolatile;
 typedef BPlusStore<CLOCKCallback, KeyType, ValueType, CLOCKCache<CLOCKCallback, FileStorage<CLOCKCallback, ObjectUIDType, CLOCKCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreCLOCKFile;
+typedef BPlusStore<CLOCKCallback, KeyType, ValueType, CLOCKCache<CLOCKCallback, PMemStorage<CLOCKCallback, ObjectUIDType, CLOCKCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreCLOCKPMem;
+
+// PMemStorage type definitions
+typedef BPlusStore<LRUCallback, KeyType, ValueType, LRUCache<LRUCallback, PMemStorage<LRUCallback, ObjectUIDType, LRUCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreLRUPMem;
+typedef BPlusStore<SSARCCallback, KeyType, ValueType, SSARCCache<SSARCCallback, PMemStorage<SSARCCallback, ObjectUIDType, SSARCCacheObject, TypeMarshaller, DataNodeType, IndexNodeType>>> BPlusStoreSSARCPMem;
 
 // Benchmark operation functions
 template<typename BPlusStoreType>
@@ -185,6 +191,63 @@ Duration benchmark_concurrent_operation(BPlusStoreType& store, const std::string
 
 
 
+// Template specializations for creating BPlusStore instances with correct storage parameters
+
+// Primary template - default case (should not be used)
+template<typename BPlusStoreType>
+std::unique_ptr<BPlusStoreType> create_bplus_store(size_t degree, size_t cache_size, size_t page_size, size_t memory_size) {
+    static_assert(sizeof(BPlusStoreType) == 0, "Unsupported BPlusStore type");
+    return nullptr;
+}
+
+// VolatileStorage specializations
+template<>
+std::unique_ptr<BPlusStoreLRUVolatile> create_bplus_store<BPlusStoreLRUVolatile>(size_t degree, size_t cache_size, size_t page_size, size_t memory_size) {
+    return std::make_unique<BPlusStoreLRUVolatile>(degree, cache_size, page_size, memory_size);
+}
+
+template<>
+std::unique_ptr<BPlusStoreSSARCVolatile> create_bplus_store<BPlusStoreSSARCVolatile>(size_t degree, size_t cache_size, size_t page_size, size_t memory_size) {
+    return std::make_unique<BPlusStoreSSARCVolatile>(degree, cache_size, page_size, memory_size);
+}
+
+template<>
+std::unique_ptr<BPlusStoreCLOCKVolatile> create_bplus_store<BPlusStoreCLOCKVolatile>(size_t degree, size_t cache_size, size_t page_size, size_t memory_size) {
+    return std::make_unique<BPlusStoreCLOCKVolatile>(degree, cache_size, page_size, memory_size);
+}
+
+// FileStorage specializations
+template<>
+std::unique_ptr<BPlusStoreLRUFile> create_bplus_store<BPlusStoreLRUFile>(size_t degree, size_t cache_size, size_t page_size, size_t memory_size) {
+    return std::make_unique<BPlusStoreLRUFile>(degree, cache_size, page_size, memory_size, FILE_STORAGE_PATH);
+}
+
+template<>
+std::unique_ptr<BPlusStoreSSARCFile> create_bplus_store<BPlusStoreSSARCFile>(size_t degree, size_t cache_size, size_t page_size, size_t memory_size) {
+    return std::make_unique<BPlusStoreSSARCFile>(degree, cache_size, page_size, memory_size, FILE_STORAGE_PATH);
+}
+
+template<>
+std::unique_ptr<BPlusStoreCLOCKFile> create_bplus_store<BPlusStoreCLOCKFile>(size_t degree, size_t cache_size, size_t page_size, size_t memory_size) {
+    return std::make_unique<BPlusStoreCLOCKFile>(degree, cache_size, page_size, memory_size, FILE_STORAGE_PATH);
+}
+
+// PMemStorage specializations
+template<>
+std::unique_ptr<BPlusStoreLRUPMem> create_bplus_store<BPlusStoreLRUPMem>(size_t degree, size_t cache_size, size_t page_size, size_t memory_size) {
+    return std::make_unique<BPlusStoreLRUPMem>(degree, cache_size, page_size, memory_size, PMEM_STORAGE_PATH);
+}
+
+template<>
+std::unique_ptr<BPlusStoreSSARCPMem> create_bplus_store<BPlusStoreSSARCPMem>(size_t degree, size_t cache_size, size_t page_size, size_t memory_size) {
+    return std::make_unique<BPlusStoreSSARCPMem>(degree, cache_size, page_size, memory_size, PMEM_STORAGE_PATH);
+}
+
+template<>
+std::unique_ptr<BPlusStoreCLOCKPMem> create_bplus_store<BPlusStoreCLOCKPMem>(size_t degree, size_t cache_size, size_t page_size, size_t memory_size) {
+    return std::make_unique<BPlusStoreCLOCKPMem>(degree, cache_size, page_size, memory_size, PMEM_STORAGE_PATH);
+}
+
 // Main benchmark function for a specific configuration
 template<typename BPlusStoreType>
 std::vector<BenchmarkResult> run_benchmark_configuration(
@@ -228,8 +291,8 @@ std::vector<BenchmarkResult> run_benchmark_configuration(
             // No need to shuffle since keys are already unique and random
         }
         
-        // Create BPlusStore instance (only VolatileStorage supported for now)
-        auto store = std::make_unique<BPlusStoreType>(degree, cache_size, page_size, memory_size);
+        // Create BPlusStore instance using specialized template function
+        auto store = create_bplus_store<BPlusStoreType>(degree, cache_size, page_size, memory_size);
         store->template init<DataNodeType>();
         
         Duration duration;
@@ -287,7 +350,7 @@ std::vector<BenchmarkResult> run_benchmark_configuration(
                   << std::endl;
 
             std::cout << "sleep for 5 mins.................................." << std::endl;
-            std::this_thread::sleep_for(std::chrono::seconds(5));
+            std::this_thread::sleep_for(std::chrono::seconds(2));
     }
     
     return results;
@@ -316,12 +379,15 @@ std::vector<BenchmarkResult> run_all_configurations(
                 page_size, memory_size, runs, thread_count, config_name);
             all_results.insert(all_results.end(), results.begin(), results.end());
         } else if (storage_type == "FileStorage") {
-            std::cerr << "Warning: FileStorage is temporarily disabled due to implementation issues." << std::endl;
-            // TODO: Fix FileStorage implementation
-            // auto results = run_benchmark_configuration<BPlusStoreLRUFile>(
-            //     cache_type, storage_type, operation, degree, records, cache_size, 
-            //     page_size, memory_size, runs, thread_count, config_name);
-            // all_results.insert(all_results.end(), results.begin(), results.end());
+            auto results = run_benchmark_configuration<BPlusStoreLRUFile>(
+                cache_type, storage_type, operation, degree, records, cache_size, 
+                page_size, memory_size, runs, thread_count, config_name);
+            all_results.insert(all_results.end(), results.begin(), results.end());
+        } else if (storage_type == "PMemStorage") {
+            auto results = run_benchmark_configuration<BPlusStoreLRUPMem>(
+                cache_type, storage_type, operation, degree, records, cache_size, 
+                page_size, memory_size, runs, thread_count, config_name);
+            all_results.insert(all_results.end(), results.begin(), results.end());
         }
     } else if (cache_type == "SSARC") {
         if (storage_type == "VolatileStorage") {
@@ -330,12 +396,15 @@ std::vector<BenchmarkResult> run_all_configurations(
                 page_size, memory_size, runs, thread_count, config_name);
             all_results.insert(all_results.end(), results.begin(), results.end());
         } else if (storage_type == "FileStorage") {
-            std::cerr << "Warning: FileStorage is temporarily disabled due to implementation issues." << std::endl;
-            // TODO: Fix FileStorage implementation
-            // auto results = run_benchmark_configuration<BPlusStoreSSARCFile>(
-            //     cache_type, storage_type, operation, degree, records, cache_size, 
-            //     page_size, memory_size, runs, thread_count, config_name);
-            // all_results.insert(all_results.end(), results.begin(), results.end());
+            auto results = run_benchmark_configuration<BPlusStoreSSARCFile>(
+                cache_type, storage_type, operation, degree, records, cache_size, 
+                page_size, memory_size, runs, thread_count, config_name);
+            all_results.insert(all_results.end(), results.begin(), results.end());
+        } else if (storage_type == "PMemStorage") {
+            auto results = run_benchmark_configuration<BPlusStoreSSARCPMem>(
+                cache_type, storage_type, operation, degree, records, cache_size, 
+                page_size, memory_size, runs, thread_count, config_name);
+            all_results.insert(all_results.end(), results.begin(), results.end());
         }
     } else if (cache_type == "CLOCK") {
         if (storage_type == "VolatileStorage") {
@@ -344,12 +413,15 @@ std::vector<BenchmarkResult> run_all_configurations(
                 page_size, memory_size, runs, thread_count, config_name);
             all_results.insert(all_results.end(), results.begin(), results.end());
         } else if (storage_type == "FileStorage") {
-            std::cerr << "Warning: FileStorage is temporarily disabled due to implementation issues." << std::endl;
-            // TODO: Fix FileStorage implementation
-            // auto results = run_benchmark_configuration<BPlusStoreCLOCKFile>(
-            //     cache_type, storage_type, operation, degree, records, cache_size, 
-            //     page_size, memory_size, runs, thread_count, config_name);
-            // all_results.insert(all_results.end(), results.begin(), results.end());
+            auto results = run_benchmark_configuration<BPlusStoreCLOCKFile>(
+                cache_type, storage_type, operation, degree, records, cache_size, 
+                page_size, memory_size, runs, thread_count, config_name);
+            all_results.insert(all_results.end(), results.begin(), results.end());
+        } else if (storage_type == "PMemStorage") {
+            auto results = run_benchmark_configuration<BPlusStoreCLOCKPMem>(
+                cache_type, storage_type, operation, degree, records, cache_size, 
+                page_size, memory_size, runs, thread_count, config_name);
+            all_results.insert(all_results.end(), results.begin(), results.end());
         }
     }
     
