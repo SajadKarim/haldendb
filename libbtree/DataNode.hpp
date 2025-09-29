@@ -210,13 +210,13 @@ public:
 	// Determines if the node requires a split based on the given degree
 	inline bool requireSplit(size_t nDegree) const
 	{
-		return m_vtKeys.size() > nDegree;
+		return m_vtKeys.size() > (2 * nDegree - 1);
 	}
 
 	// Determines if the node requires merging based on the given degree
 	inline bool requireMerge(size_t nDegree) const
 	{
-		return m_vtKeys.size() <= std::ceil(nDegree / 2.0f);
+		return m_vtKeys.size() < (nDegree - 1);
 	}
 
 	// Retrieves the first key from the node

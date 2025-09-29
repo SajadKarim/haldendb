@@ -13,6 +13,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BENCHMARK_DIR="$SCRIPT_DIR/build"
 BENCHMARK_EXEC="$BENCHMARK_DIR/benchmark"
 
+# Data file path configuration
+# Default to /home/skarim/benchmark_data/data, but allow override via environment variable
+DATA_PATH="${DATA_PATH:-/home/skarim/benchmark_data/data}"
+
+# Create data directory if it doesn't exist
+mkdir -p "$DATA_PATH"
+
 # Create timestamped output directory (only if not running merge command)
 if [ "${1:-full}" != "merge" ]; then
     TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
@@ -23,6 +30,7 @@ if [ "${1:-full}" != "merge" ]; then
     
     echo "=========================================="
     echo "BPlusStore Cache Profiling Results Directory: $PROFILE_OUTPUT_DIR"
+    echo "Data Files Directory: $DATA_PATH"
     echo "=========================================="
 else
     # For merge command, we'll determine the directory later
@@ -30,9 +38,9 @@ else
 fi
 
 # Cache-specific configuration arrays
-CACHE_TYPES=("LRU" "SSARC" "CLOCK")  # CLOCK cache now enabled and fixed
+CACHE_TYPES=("LRU" "A2Q" "CLOCK")  # CLOCK cache now enabled and fixed
 STORAGE_TYPES=("VolatileStorage" "FileStorage" "PMemStorage")
-CACHE_SIZE_PERCENTAGES=("2%" "10%" "20%")  # Cache sizes as percentages of estimated B+ tree pages
+CACHE_SIZE_PERCENTAGES=("2%" "10%" "25%")  # Cache sizes as percentages of estimated B+ tree pages
 PAGE_SIZES=(4096)
 MEMORY_SIZES=(34359738368)  # 1GB default
 
@@ -40,7 +48,7 @@ MEMORY_SIZES=(34359738368)  # 1GB default
 TREES=("BPlusStore")
 
 # Degrees to test
-DEGREES=(64)
+DEGREES=(24)
 
 # Operations to profile
 OPERATIONS=("insert" "search_random" "search_sequential" "search_uniform" "search_zipfian" "delete")
@@ -53,8 +61,8 @@ KEY_VALUE_COMBOS["uint64_t_uint64_t"]="uint64_t uint64_t"
 #KEY_VALUE_COMBOS["uint64_t_char16"]="uint64_t char16"
 
 # Record count for profiling
-RECORDS=(1000000)
-RUNS=${RUNS:-3}  # Default to 3, but allow override via environment variable
+RECORDS=(100000)
+RUNS=${RUNS:-5}  # Default to 3, but allow override via environment variable
 THREADS=(4)
 
 # Perf events to collect (cache-focused)
@@ -261,13 +269,13 @@ build_cache_configuration() {
     # Configure and build based on type
     if [ "$config_type" = "non_concurrent_default" ]; then
         echo "Building with cache + non_concurrent_default + cache counters ..."
-        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D__TREE_WITH_CACHE__ -D__CACHE_COUNTERS__ $RELEASE_OPTS"
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D__TREE_WITH_CACHE__ $RELEASE_OPTS"
     elif [ "$config_type" = "concurrent_default" ]; then
         echo "Building with cache + concurrent_default + cache counters ..."
-        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D__TREE_WITH_CACHE__ -D__CONCURRENT__ -D__CACHE_COUNTERS__ $RELEASE_OPTS"
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D__TREE_WITH_CACHE__ -D__CONCURRENT__ $RELEASE_OPTS"
     else
         echo "Building with cache + default + cache counters ..."
-        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D__TREE_WITH_CACHE__ -D__CACHE_COUNTERS__ $RELEASE_OPTS"
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D__TREE_WITH_CACHE__ $RELEASE_OPTS"
     fi
     
     make -j$(nproc)
@@ -329,6 +337,7 @@ run_cache_profiled_benchmark() {
               --cache-type "$cache_type" \
               --storage-type "$storage_type" \
               --cache-size "$cache_size" \
+              --cache-percentage "$cache_size_percentage" \
               --page-size "$page_size" \
               --memory-size "$memory_size" \
               --tree-type "$tree_type" \
@@ -340,7 +349,8 @@ run_cache_profiled_benchmark() {
               --runs "$RUNS" \
               --threads "$thread_count" \
               --output-dir "$run_folder" \
-              --config-name "$config_name"
+              --config-name "$config_name" \
+              --data-path "$DATA_PATH"
     
     # Also run with perf record for detailed analysis (optional)
     if [ "$DETAILED_PROFILING" = "true" ]; then
@@ -353,6 +363,7 @@ run_cache_profiled_benchmark() {
                     --cache-type "$cache_type" \
                     --storage-type "$storage_type" \
                     --cache-size "$cache_size" \
+                    --cache-percentage "$cache_size_percentage" \
                     --page-size "$page_size" \
                     --memory-size "$memory_size" \
                     --tree-type "$tree_type" \
@@ -364,7 +375,8 @@ run_cache_profiled_benchmark() {
                     --runs "$RUNS" \
                     --threads "$thread_count" \
                     --output-dir "$run_folder" \
-                    --config-name "$config_name"
+                    --config-name "$config_name" \
+                    --data-path "$DATA_PATH"
     fi
     
     # Rename the CSV file to match the perf file naming convention
@@ -374,10 +386,8 @@ run_cache_profiled_benchmark() {
         mv "$latest_csv" "$target_csv"
         echo "CSV file renamed to: $(basename "$target_csv")"
         
-        # Post-process the CSV file to add cache size percentage and rename cache_size column
-        if [ -n "$cache_size_percentage" ]; then
-            post_process_csv_with_cache_info "$target_csv" "$cache_size_percentage"
-        fi
+        # CSV file is already correctly formatted by the C++ benchmark code
+        echo "CSV file ready: $(basename "$target_csv")"
     else
         echo "WARNING: No CSV file found in $run_folder with pattern benchmark_*.csv"
         echo "Checking for any CSV files in the directory:"
@@ -482,10 +492,14 @@ run_full_cache_profiling_with_params() {
                                                 ((current_combination++))
                                                 echo "Progress: $current_combination/$total_combinations ($config_id)"
                                                 
-                                                run_cache_profiled_benchmark "$tree" "$cache_type" "$storage_type" "$actual_cache_size" "$page_size" "$memory_size" "$key_type" "$value_type" "$operation" "$degree" "$records" "$config_id" "$thread_count" "$cache_size_percentage"
+                                                # Convert percentage to decimal for C++ code
+                                                local percent_value=${cache_size_percentage%\%}
+                                                local decimal_value=$(echo "scale=4; $percent_value / 100" | bc -l | awk '{printf "%.4f", $0}')
+                                                
+                                                run_cache_profiled_benchmark "$tree" "$cache_type" "$storage_type" "$actual_cache_size" "$page_size" "$memory_size" "$key_type" "$value_type" "$operation" "$degree" "$records" "$config_id" "$thread_count" "$decimal_value"
                                                 
                                                 # Small delay between runs to let system settle
-                                                sleep 5
+                                                sleep 2
                                             done
                                         done
                                     done
@@ -509,7 +523,23 @@ run_full_cache_profiling_with_params() {
 run_full_cache_profiling_single_threaded() {
     # Create a local single-threaded array
     local SINGLE_THREADS=(1)
-    local CACHE_TYPES_LOCAL=("LRU" "SSARC" "CLOCK")  # Test all cache types
+    local CACHE_TYPES_LOCAL=("LRU")  # Test all cache types
+
+    echo "Running single-threaded BPlusStore cache profiling..."
+    echo "Using cache types: ${CACHE_TYPES_LOCAL[*]}"
+    
+    local config_type="non_concurrent_default"    
+    run_full_cache_profiling_with_params "$config_type" CACHE_TYPES_LOCAL STORAGE_TYPES CACHE_SIZE_PERCENTAGES PAGE_SIZES MEMORY_SIZES TREES DEGREES OPERATIONS KEY_VALUE_COMBOS RECORDS "" SINGLE_THREADS
+
+    local CACHE_TYPES_LOCAL=("A2Q")  # Test all cache types
+
+    echo "Running single-threaded BPlusStore cache profiling..."
+    echo "Using cache types: ${CACHE_TYPES_LOCAL[*]}"
+    
+    local config_type="non_concurrent_default"    
+    run_full_cache_profiling_with_params "$config_type" CACHE_TYPES_LOCAL STORAGE_TYPES CACHE_SIZE_PERCENTAGES PAGE_SIZES MEMORY_SIZES TREES DEGREES OPERATIONS KEY_VALUE_COMBOS RECORDS "" SINGLE_THREADS
+
+    local CACHE_TYPES_LOCAL=("CLOCK")  # Test all cache types
 
     echo "Running single-threaded BPlusStore cache profiling..."
     echo "Using cache types: ${CACHE_TYPES_LOCAL[*]}"
@@ -523,7 +553,19 @@ run_full_cache_profiling_multi_threaded() {
     echo "Running multi-threaded BPlusStore cache profiling..."
     echo "Using threads: ${THREADS[*]}"
     
-    local CACHE_TYPES_LOCAL=("LRU" "SSARC" "CLOCK")
+    local CACHE_TYPES_LOCAL=("LRU")
+    echo "Using cache types: ${CACHE_TYPES_LOCAL[*]}"
+    
+    local config_type="concurrent_default"    
+    run_full_cache_profiling_with_params "$config_type" CACHE_TYPES_LOCAL STORAGE_TYPES CACHE_SIZE_PERCENTAGES PAGE_SIZES MEMORY_SIZES TREES DEGREES OPERATIONS KEY_VALUE_COMBOS RECORDS "" THREADS
+
+    local CACHE_TYPES_LOCAL=("A2Q")
+    echo "Using cache types: ${CACHE_TYPES_LOCAL[*]}"
+    
+    local config_type="concurrent_default"    
+    run_full_cache_profiling_with_params "$config_type" CACHE_TYPES_LOCAL STORAGE_TYPES CACHE_SIZE_PERCENTAGES PAGE_SIZES MEMORY_SIZES TREES DEGREES OPERATIONS KEY_VALUE_COMBOS RECORDS "" THREADS
+
+    local CACHE_TYPES_LOCAL=("CLOCK")
     echo "Using cache types: ${CACHE_TYPES_LOCAL[*]}"
     
     local config_type="concurrent_default"    
@@ -600,7 +642,8 @@ run_quick_cache_benchmark() {
                                         --degree "$degree" \\
                                         --records "$records" \\
                                         --runs 1 \\
-                                        --threads "$thread_count" > /dev/null 2>&1
+                                        --threads "$thread_count" \\
+                                        --data-path "$DATA_PATH" > /dev/null 2>&1
                                 
                                     # Find the most recent CSV file and append to consolidated results
                                     local latest_csv=$(ls -t benchmark_*.csv 2>/dev/null | head -1)
@@ -907,6 +950,7 @@ show_usage() {
     echo "Environment Variables:"
     echo "  RUNS=N                      Set number of runs per configuration (default: 3)"
     echo "  DETAILED_PROFILING=true     Enable detailed perf record profiling"
+    echo "  DATA_PATH=path              Set data files directory (default: /home/skarim/benchmark_data/data)"
     echo ""
     echo "Cache Types: ${CACHE_TYPES[*]}"
     echo "Storage Types: ${STORAGE_TYPES[*]}"

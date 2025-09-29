@@ -19,7 +19,7 @@ echo "Simple BPlusStore Cache Benchmark Results Directory: $OUTPUT_DIR"
 echo "=========================================="
 
 # Configuration arrays
-CACHE_TYPES=("LRU" "SSARC")  # CLOCK disabled due to implementation issues
+CACHE_TYPES=("LRU" "A2Q")  # CLOCK disabled due to implementation issues
 STORAGE_TYPES=("VolatileStorage")  # FileStorage disabled due to implementation issues
 CACHE_SIZE_PERCENTAGES=("5%" "15%" "25%")
 PAGE_SIZES=(4096)
@@ -241,7 +241,7 @@ run_quick_benchmark() {
     echo "=========================================="
     
     # Reduced configuration for quick testing
-    local quick_cache_types=("LRU" "SSARC")
+    local quick_cache_types=("LRU" "A2Q")
     local quick_storage_types=("VolatileStorage")
     local quick_cache_sizes=("5%" "15%")
     local quick_trees=("BPlusStore")

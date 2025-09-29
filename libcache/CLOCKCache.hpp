@@ -642,7 +642,7 @@ public:
 
 	CacheErrorCode flush()
 	{
-		flushDataItemsToStorage();
+		flushAllItemsToStorage();
 		//presistCurrentCacheState();
 
 		return CacheErrorCode::Success;

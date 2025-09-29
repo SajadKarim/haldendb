@@ -192,7 +192,7 @@ std::vector<T> load_data_from_file(const std::string& filepath) {
 }
 
 // Generate filename based on type, distribution and count
-inline std::string generate_filename(const std::string& type, DistributionType distribution, size_t count) {
+inline std::string generate_filename(const std::string& type, DistributionType distribution, size_t count, const std::string& data_path = "/home/skarim/Code/haldendb_ex/haldendb/benchmark/data") {
     std::string dist_name;
     switch (distribution) {
         case DistributionType::Random: dist_name = "random"; break;
@@ -200,23 +200,23 @@ inline std::string generate_filename(const std::string& type, DistributionType d
         case DistributionType::Zipfian: dist_name = "zipfian"; break;
         case DistributionType::Uniform: dist_name = "uniform"; break;
     }
-    // Use absolute path to create data files outside build folder
-    return "/home/skarim/Code/haldendb_ex/haldendb/benchmark/data/" + type + "_" + dist_name + "_" + std::to_string(count) + ".dat";
+    // Use configurable path to create data files
+    return data_path + "/" + type + "_" + dist_name + "_" + std::to_string(count) + ".dat";
 }
 
 // Create workload for specific type and distribution
 template<typename T>
-void create_workload(DistributionType distribution, size_t count) {
+void create_workload(DistributionType distribution, size_t count, const std::string& data_path = "/home/skarim/Code/haldendb_ex/haldendb/benchmark/data") {
     std::string type_name;
     if constexpr (std::is_same_v<T, int>) {
         type_name = "int";
     } else if constexpr (std::is_same_v<T, uint64_t>) {
-        type_name = "uint64_t";
+        type_name = "uint64";
     } else if constexpr (std::is_same_v<T, CHAR16>) {
         type_name = "char16";
     }
     
-    std::string filename = generate_filename(type_name, distribution, count);
+    std::string filename = generate_filename(type_name, distribution, count, data_path);
     
     // Check if file exists
     if (std::filesystem::exists(filename)) {
@@ -225,7 +225,7 @@ void create_workload(DistributionType distribution, size_t count) {
     }
     
     // Create data directory if it doesn't exist
-    std::filesystem::create_directories("/home/skarim/Code/haldendb_ex/haldendb/benchmark/data");
+    std::filesystem::create_directories(data_path);
     
     // Generate data
     std::vector<T> data;
@@ -237,7 +237,7 @@ void create_workload(DistributionType distribution, size_t count) {
 }
 
 // Generate all workloads for all combinations
-inline void generate_all_workloads() {
+inline void generate_all_workloads(const std::string& data_path = "/home/skarim/Code/haldendb_ex/haldendb/benchmark/data") {
     std::vector<size_t> record_counts = {100000, 500000, 1000000, 5000000, 10000000};
     std::vector<DistributionType> distributions = {
         DistributionType::Random,
@@ -246,26 +246,26 @@ inline void generate_all_workloads() {
         DistributionType::Zipfian
     };
     
-    std::cout << "Generating workloads for all combinations..." << std::endl;
+    std::cout << "Generating workloads for all combinations in: " << data_path << std::endl;
     
     // Generate int workloads
     for (size_t count : record_counts) {
         for (DistributionType dist : distributions) {
-            create_workload<int>(dist, count);
+            create_workload<int>(dist, count, data_path);
         }
     }
     
     // Generate uint64_t workloads
     for (size_t count : record_counts) {
         for (DistributionType dist : distributions) {
-            create_workload<uint64_t>(dist, count);
+            create_workload<uint64_t>(dist, count, data_path);
         }
     }
     
     // Generate CHAR16 workloads
     for (size_t count : record_counts) {
         for (DistributionType dist : distributions) {
-            create_workload<CHAR16>(dist, count);
+            create_workload<CHAR16>(dist, count, data_path);
         }
     }
     
@@ -274,22 +274,22 @@ inline void generate_all_workloads() {
 
 // Load workload data for insert operations (unique random data)
 template<typename T>
-std::vector<T> load_insert_workload(size_t count) {
+std::vector<T> load_insert_workload(size_t count, const std::string& data_path = "/home/skarim/Code/haldendb_ex/haldendb/benchmark/data") {
     std::string type_name;
     if constexpr (std::is_same_v<T, int>) {
         type_name = "int";
     } else if constexpr (std::is_same_v<T, uint64_t>) {
-        type_name = "uint64_t";
+        type_name = "uint64";
     } else if constexpr (std::is_same_v<T, CHAR16>) {
         type_name = "char16";
     }
     
-    std::string filename = generate_filename(type_name, DistributionType::Random, count);
+    std::string filename = generate_filename(type_name, DistributionType::Random, count, data_path);
     
     // Check if file exists, if not generate it
     if (!std::filesystem::exists(filename)) {
         std::cout << "Workload file " << filename << " not found, generating..." << std::endl;
-        create_workload<T>(DistributionType::Random, count);
+        create_workload<T>(DistributionType::Random, count, data_path);
     }
     
     return load_data_from_file<T>(filename);
@@ -297,22 +297,22 @@ std::vector<T> load_insert_workload(size_t count) {
 
 // Load workload data for search operations based on distribution type
 template<typename T>
-std::vector<T> load_search_workload(size_t count, DistributionType distribution) {
+std::vector<T> load_search_workload(size_t count, DistributionType distribution, const std::string& data_path = "/home/skarim/Code/haldendb_ex/haldendb/benchmark/data") {
     std::string type_name;
     if constexpr (std::is_same_v<T, int>) {
         type_name = "int";
     } else if constexpr (std::is_same_v<T, uint64_t>) {
-        type_name = "uint64_t";
+        type_name = "uint64";
     } else if constexpr (std::is_same_v<T, CHAR16>) {
         type_name = "char16";
     }
     
-    std::string filename = generate_filename(type_name, distribution, count);
+    std::string filename = generate_filename(type_name, distribution, count, data_path);
     
     // Check if file exists, if not generate it
     if (!std::filesystem::exists(filename)) {
         std::cout << "Workload file " << filename << " not found, generating..." << std::endl;
-        create_workload<T>(distribution, count);
+        create_workload<T>(distribution, count, data_path);
     }
     
     return load_data_from_file<T>(filename);

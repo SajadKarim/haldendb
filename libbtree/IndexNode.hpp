@@ -265,22 +265,22 @@ public:
 	// Checks if the node requires a split based on the degree
 	inline bool requireSplit(size_t nDegree) const
 	{
-		return m_vtPivots.size() > nDegree;
+		return m_vtPivots.size() > (2 * nDegree - 1);
 	}
 
 	inline bool canTriggerSplit(size_t nDegree) const
 	{
-		return m_vtPivots.size() + 1 > nDegree;
+		return m_vtPivots.size() == (2 * nDegree - 1);
 	}
 
 	inline bool canTriggerMerge(size_t nDegree) const
 	{
-		return m_vtPivots.size() <= std::ceil(nDegree / 2.0f) + 1;	// TODO: macro!
+		return m_vtPivots.size() < nDegree;	// TODO: macro!
 	}
 
 	inline bool requireMerge(size_t nDegree) const
 	{
-		return m_vtPivots.size() <= std::ceil(nDegree / 2.0f);
+		return m_vtPivots.size() < (nDegree - 1);
 	}
 
 	inline size_t getSize() const

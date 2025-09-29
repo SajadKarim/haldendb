@@ -257,11 +257,13 @@ std::vector<BenchmarkResult> run_benchmark_configuration(
     size_t degree,
     size_t records,
     size_t cache_size,
+    double cache_percentage,
     size_t page_size,
     size_t memory_size,
     int runs,
     int thread_count,
-    const std::string& config_name) {
+    const std::string& config_name,
+    const std::string& data_path = "/home/skarim/Code/haldendb_ex/haldendb/benchmark/data") {
     
     std::vector<BenchmarkResult> results;
     RandomGenerator rng;
@@ -273,19 +275,19 @@ std::vector<BenchmarkResult> run_benchmark_configuration(
     for (int run = 0; run < runs; ++run) {
         // Create fresh data for each run using workload generator
         // Load unique random data for insert operations (keys and values)
-        std::vector<KeyType> keys = workloadgenerator::load_insert_workload<KeyType>(records);
-        std::vector<ValueType> values = workloadgenerator::load_insert_workload<ValueType>(records);
+        std::vector<KeyType> keys = workloadgenerator::load_insert_workload<KeyType>(records, data_path);
+        std::vector<ValueType> values = workloadgenerator::load_insert_workload<ValueType>(records, data_path);
         
         // Generate search keys based on operation type using workload generator
         std::vector<KeyType> search_keys;
         if (operation == "search_random") {
-            search_keys = workloadgenerator::load_search_workload<KeyType>(records, workloadgenerator::DistributionType::Random);
+            search_keys = workloadgenerator::load_search_workload<KeyType>(records, workloadgenerator::DistributionType::Random, data_path);
         } else if (operation == "search_sequential") {
-            search_keys = workloadgenerator::load_search_workload<KeyType>(records, workloadgenerator::DistributionType::Sequential);
+            search_keys = workloadgenerator::load_search_workload<KeyType>(records, workloadgenerator::DistributionType::Sequential, data_path);
         } else if (operation == "search_uniform") {
-            search_keys = workloadgenerator::load_search_workload<KeyType>(records, workloadgenerator::DistributionType::Uniform);
+            search_keys = workloadgenerator::load_search_workload<KeyType>(records, workloadgenerator::DistributionType::Uniform, data_path);
         } else if (operation == "search_zipfian") {
-            search_keys = workloadgenerator::load_search_workload<KeyType>(records, workloadgenerator::DistributionType::Zipfian);
+            search_keys = workloadgenerator::load_search_workload<KeyType>(records, workloadgenerator::DistributionType::Zipfian, data_path);
         } else if (operation == "delete") {
             // For delete, use the same keys as insert (already randomized)
             // No need to shuffle since keys are already unique and random
@@ -332,12 +334,12 @@ std::vector<BenchmarkResult> run_benchmark_configuration(
         uint64_t evictions = store->getEvictions();
         uint64_t dirty_evictions = store->getDirtyEvictions();
         
-        BenchmarkResult result("BPlusStore", cache_type_name, storage_type_name, cache_size,
+        BenchmarkResult result("BPlusStore", cache_type_name, storage_type_name, cache_percentage, cache_size,
                               "int", "int", operation, degree, records, run + 1, 
                               thread_count, duration, config_name,
                               cache_hits, cache_misses, evictions, dirty_evictions);
 #else
-        BenchmarkResult result("BPlusStore", cache_type_name, storage_type_name, cache_size,
+        BenchmarkResult result("BPlusStore", cache_type_name, storage_type_name, cache_percentage, cache_size,
                               "int", "int", operation, degree, records, run + 1, 
                               thread_count, duration, config_name);
 #endif //__CACHE_COUNTERS__
@@ -364,63 +366,65 @@ std::vector<BenchmarkResult> run_all_configurations(
     size_t degree,
     size_t records,
     size_t cache_size,
+    double cache_percentage,
     size_t page_size,
     size_t memory_size,
     int runs,
     int thread_count,
-    const std::string& config_name) {
+    const std::string& config_name,
+    const std::string& data_path = "/home/skarim/Code/haldendb_ex/haldendb/benchmark/data") {
     
     std::vector<BenchmarkResult> all_results;
     
     if (cache_type == "LRU") {
         if (storage_type == "VolatileStorage") {
             auto results = run_benchmark_configuration<BPlusStoreLRUVolatile>(
-                cache_type, storage_type, operation, degree, records, cache_size, 
-                page_size, memory_size, runs, thread_count, config_name);
+                cache_type, storage_type, operation, degree, records, cache_size, cache_percentage,
+                page_size, memory_size, runs, thread_count, config_name, data_path);
             all_results.insert(all_results.end(), results.begin(), results.end());
         } else if (storage_type == "FileStorage") {
             auto results = run_benchmark_configuration<BPlusStoreLRUFile>(
-                cache_type, storage_type, operation, degree, records, cache_size, 
-                page_size, memory_size, runs, thread_count, config_name);
+                cache_type, storage_type, operation, degree, records, cache_size, cache_percentage,
+                page_size, memory_size, runs, thread_count, config_name, data_path);
             all_results.insert(all_results.end(), results.begin(), results.end());
         } else if (storage_type == "PMemStorage") {
             auto results = run_benchmark_configuration<BPlusStoreLRUPMem>(
-                cache_type, storage_type, operation, degree, records, cache_size, 
-                page_size, memory_size, runs, thread_count, config_name);
+                cache_type, storage_type, operation, degree, records, cache_size, cache_percentage,
+                page_size, memory_size, runs, thread_count, config_name, data_path);
             all_results.insert(all_results.end(), results.begin(), results.end());
         }
-    } else if (cache_type == "SSARC") {
+    } else if (cache_type == "A2Q") {
         if (storage_type == "VolatileStorage") {
             auto results = run_benchmark_configuration<BPlusStoreSSARCVolatile>(
-                cache_type, storage_type, operation, degree, records, cache_size, 
-                page_size, memory_size, runs, thread_count, config_name);
+                "A2Q", storage_type, operation, degree, records, cache_size, cache_percentage,
+                page_size, memory_size, runs, thread_count, config_name, data_path);
             all_results.insert(all_results.end(), results.begin(), results.end());
         } else if (storage_type == "FileStorage") {
             auto results = run_benchmark_configuration<BPlusStoreSSARCFile>(
-                cache_type, storage_type, operation, degree, records, cache_size, 
-                page_size, memory_size, runs, thread_count, config_name);
+                cache_type, storage_type, operation, degree, records, cache_size, cache_percentage,
+                page_size, memory_size, runs, thread_count, config_name, data_path);
             all_results.insert(all_results.end(), results.begin(), results.end());
         } else if (storage_type == "PMemStorage") {
             auto results = run_benchmark_configuration<BPlusStoreSSARCPMem>(
-                cache_type, storage_type, operation, degree, records, cache_size, 
-                page_size, memory_size, runs, thread_count, config_name);
+                cache_type, storage_type, operation, degree, records, cache_size, cache_percentage,
+                page_size, memory_size, runs, thread_count, config_name, data_path);
             all_results.insert(all_results.end(), results.begin(), results.end());
         }
     } else if (cache_type == "CLOCK") {
         if (storage_type == "VolatileStorage") {
             auto results = run_benchmark_configuration<BPlusStoreCLOCKVolatile>(
-                cache_type, storage_type, operation, degree, records, cache_size, 
-                page_size, memory_size, runs, thread_count, config_name);
+                cache_type, storage_type, operation, degree, records, cache_size, cache_percentage,
+                page_size, memory_size, runs, thread_count, config_name, data_path);
             all_results.insert(all_results.end(), results.begin(), results.end());
         } else if (storage_type == "FileStorage") {
             auto results = run_benchmark_configuration<BPlusStoreCLOCKFile>(
-                cache_type, storage_type, operation, degree, records, cache_size, 
-                page_size, memory_size, runs, thread_count, config_name);
+                cache_type, storage_type, operation, degree, records, cache_size, cache_percentage,
+                page_size, memory_size, runs, thread_count, config_name, data_path);
             all_results.insert(all_results.end(), results.begin(), results.end());
         } else if (storage_type == "PMemStorage") {
             auto results = run_benchmark_configuration<BPlusStoreCLOCKPMem>(
-                cache_type, storage_type, operation, degree, records, cache_size, 
-                page_size, memory_size, runs, thread_count, config_name);
+                cache_type, storage_type, operation, degree, records, cache_size, cache_percentage,
+                page_size, memory_size, runs, thread_count, config_name, data_path);
             all_results.insert(all_results.end(), results.begin(), results.end());
         }
     }
@@ -435,13 +439,15 @@ void test_with_shell_parameters(
     const std::string& output_dir,
     const std::string& storage_type,
     int cache_size,
+    double cache_percentage,
     int page_size,
     long long memory_size,
     const std::vector<std::string>& operations,
     const std::vector<size_t>& degrees,
     const std::vector<size_t>& record_counts,
     int threads,
-    const std::string& config_name) {
+    const std::string& config_name,
+    const std::string& data_path = "/home/skarim/Code/haldendb_ex/haldendb/benchmark/data") {
     
     std::cout << "=== BPlusStore Cache Benchmark Suite ===" << std::endl;
     std::cout << "Cache Type: " << cache_type << std::endl;
@@ -462,7 +468,7 @@ void test_with_shell_parameters(
                 
                 auto results = run_all_configurations(
                     cache_type, storage_type, operation, degree, records,
-                    cache_size, page_size, memory_size, runs, threads, config_name);
+                    cache_size, cache_percentage, page_size, memory_size, runs, threads, config_name, data_path);
                 
                 logger.add_results(results);
             }
@@ -479,6 +485,7 @@ void test_single_configuration(
     const std::string& cache_type,
     const std::string& storage_type,
     int cache_size,
+    double cache_percentage,
     int page_size,
     long long memory_size,
     const std::string& key_type,
@@ -489,18 +496,20 @@ void test_single_configuration(
     int runs,
     int threads,
     const std::string& output_dir,
-    const std::string& config_name) {
+    const std::string& config_name,
+    const std::string& data_path = "data") {
     
     std::cout << "=== Single BPlusStore Configuration Test ===" << std::endl;
     std::cout << "Cache: " << cache_type << "/" << storage_type << std::endl;
     std::cout << "Operation: " << operation << std::endl;
     std::cout << "Degree: " << degree << ", Records: " << records << std::endl;
     std::cout << "Runs: " << runs << ", Threads: " << threads << std::endl;
+    std::cout << "Data Path: " << data_path << std::endl;
     std::cout << "=============================================" << std::endl;
     
     auto results = run_all_configurations(
         cache_type, storage_type, operation, degree, records,
-        cache_size, page_size, memory_size, runs, threads, config_name);
+        cache_size, cache_percentage, page_size, memory_size, runs, threads, config_name, data_path);
     
     // Save results
     BatchCSVLogger logger(output_dir, "benchmark_single");

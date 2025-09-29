@@ -645,7 +645,7 @@ public:
 
 	CacheErrorCode flush()
 	{
-		flushDataItemsToStorage();
+		flushAllItemsToStorage();
 		//presistCurrentCacheState();
 
 		return CacheErrorCode::Success;
@@ -1029,7 +1029,6 @@ private:
 
 		vtObjects.clear();
 #else //__CONCURRENT__
-
 		while (m_mpObjects.size() > m_nCacheCapacity)
 		{
 			if (m_ptrTail->m_ptrObject.use_count() > 1)

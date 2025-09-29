@@ -39,11 +39,11 @@ public:
     
     void write_header() {
         if (!header_written_) {
-            file_ << "tree_type,cache_type,storage_type,cache_size,key_type,value_type,"
-                  << "operation,record_count,degree,run_id,thread_count,time_ns,time_us,"
-                  << "throughput_ops_sec,timestamp,config_name";
+            file_ << "tree_type,policy_name,storage_type,config_name,cache_size,cache_page_limit,"
+                  << "thread_count,timestamp,key_type,value_type,record_count,degree,"
+                  << "operation,time_us,throughput_ops_sec,test_run_id";
 #ifdef __CACHE_COUNTERS__
-            file_ << ",cache_hits,cache_misses,evictions,dirty_evictions,cache_hit_ratio";
+            file_ << ",cache_hits,cache_misses,cache_evictions,cache_dirty_evictions,cache_hit_rate";
 #endif //__CACHE_COUNTERS__
             file_ << "\n";
             header_written_ = true;
@@ -54,27 +54,27 @@ public:
         write_header();
         
         file_ << result.tree_type << ","
-              << result.cache_type << ","
+              << result.policy_name << ","
               << result.storage_type << ","
+              << result.config_name << ","
               << result.cache_size << ","
+              << result.cache_page_limit << ","
+              << result.thread_count << ","
+              << result.timestamp << ","
               << result.key_type << ","
               << result.value_type << ","
-              << result.operation << ","
               << result.record_count << ","
               << result.degree << ","
-              << result.run_id << ","
-              << result.thread_count << ","
-              << result.duration.count() << ","
-              << duration_to_microseconds(result.duration) << ","
+              << result.operation << ","
+              << std::fixed << std::setprecision(0) << duration_to_microseconds(result.duration) << ","
               << std::fixed << std::setprecision(2) << result.throughput_ops_sec << ","
-              << result.timestamp << ","
-              << result.config_name;
+              << result.test_run_id;
 #ifdef __CACHE_COUNTERS__
         file_ << "," << result.cache_hits
               << "," << result.cache_misses
-              << "," << result.evictions
-              << "," << result.dirty_evictions
-              << "," << std::fixed << std::setprecision(4) << result.cache_hit_ratio;
+              << "," << result.cache_evictions
+              << "," << result.cache_dirty_evictions
+              << "," << std::fixed << std::setprecision(4) << result.cache_hit_rate;
 #endif //__CACHE_COUNTERS__
         file_ << "\n";
         
@@ -214,7 +214,7 @@ public:
         
         file_ << index << ","
               << latency.count() << ","
-              << duration_to_microseconds(latency) << "\n";
+              << std::fixed << std::setprecision(0) << duration_to_microseconds(latency) << "\n";
     }
     
     void log_latencies(const std::vector<Duration>& latencies) {
@@ -223,7 +223,7 @@ public:
         for (size_t i = 0; i < latencies.size(); ++i) {
             file_ << i << ","
                   << latencies[i].count() << ","
-                  << duration_to_microseconds(latencies[i]) << "\n";
+                  << std::fixed << std::setprecision(0) << duration_to_microseconds(latencies[i]) << "\n";
         }
         
         file_.flush();

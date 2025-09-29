@@ -8,7 +8,7 @@ project(haldendb_benchmark VERSION 1.0)
 
 # Find required packages
 #find_package(glog 0.7.0 REQUIRED)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 
 # Set build type to Release by default
 if(NOT CMAKE_BUILD_TYPE)
@@ -16,9 +16,9 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Configure build-specific flags
-set(CMAKE_CXX_FLAGS_DEBUG "-g3 -O0 -ggdb3 -fno-omit-frame-pointer")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -march=native -mtune=native")
-set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -g -DNDEBUG -march=native -mtune=native")
+#set(CMAKE_CXX_FLAGS_DEBUG "-g3 -O0 -ggdb3 -fno-omit-frame-pointer")
+#set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -march=native -mtune=native")
+#set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -g -DNDEBUG -march=native -mtune=native")
 
 # Create compiler flags interface library
 add_library(haldendb_compiler_flags INTERFACE)

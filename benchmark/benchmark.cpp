@@ -27,13 +27,15 @@ void run_full_benchmark_suite(
     const std::string& output_dir,
     const std::string& storage_type,
     int cache_size,
+    double cache_percentage,
     int page_size,
     long long memory_size,
     const std::vector<std::string>& operations,
     const std::vector<size_t>& degrees,
     const std::vector<size_t>& record_counts,
     int threads,
-    const std::string& config_name) {
+    const std::string& config_name,
+    const std::string& data_path) {
     
     // Define all supported key-value type combinations
     std::vector<std::pair<std::string, std::string>> type_combinations = {
@@ -48,8 +50,8 @@ void run_full_benchmark_suite(
         
         if (key_type == "int" && value_type == "int") {
             bm_bplus_with_cache::test_with_shell_parameters(
-                cache_type, runs, output_dir, storage_type, cache_size, page_size, memory_size,
-                operations, degrees, record_counts, threads, config_name);
+                cache_type, runs, output_dir, storage_type, cache_size, cache_percentage, page_size, memory_size,
+                operations, degrees, record_counts, threads, config_name, data_path);
         } else {
             // For now, just print that other types are not yet implemented in full mode
             std::cout << "Full benchmark suite for " << key_type << " -> " << value_type 
@@ -65,6 +67,7 @@ void run_benchmark_for_types(
     const std::string& cache_type,
     const std::string& storage_type,
     int cache_size,
+    double cache_percentage,
     int page_size,
     long long memory_size,
     const std::string& operation,
@@ -73,28 +76,29 @@ void run_benchmark_for_types(
     int runs,
     int threads,
     const std::string& output_dir,
-    const std::string& config_name) {
+    const std::string& config_name,
+    const std::string& data_path) {
     
     if (key_type == "int" && value_type == "int") {
         bm_bplus_with_cache::test_single_configuration(
-            cache_type, storage_type, cache_size, page_size, memory_size,
+            cache_type, storage_type, cache_size, cache_percentage, page_size, memory_size,
             key_type, value_type, operation, degree, records, runs, threads,
-            output_dir, config_name);
+            output_dir, config_name, data_path);
     } else if (key_type == "uint64_t" && value_type == "uint64_t") {
         bm_bplus_with_cache_uint64_uint64::test_single_configuration(
-            cache_type, storage_type, cache_size, page_size, memory_size,
+            cache_type, storage_type, cache_size, cache_percentage, page_size, memory_size,
             key_type, value_type, operation, degree, records, runs, threads,
-            output_dir, config_name);
+            output_dir, config_name, data_path);
     } else if (key_type == "char16" && value_type == "char16") {
         bm_bplus_with_cache_char16_char16::test_single_configuration(
-            cache_type, storage_type, cache_size, page_size, memory_size,
+            cache_type, storage_type, cache_size, cache_percentage, page_size, memory_size,
             key_type, value_type, operation, degree, records, runs, threads,
-            output_dir, config_name);
+            output_dir, config_name, data_path);
     } else if (key_type == "uint64_t" && value_type == "char16") {
         bm_bplus_with_cache_uint64_char16::test_single_configuration(
-            cache_type, storage_type, cache_size, page_size, memory_size,
+            cache_type, storage_type, cache_size, cache_percentage, page_size, memory_size,
             key_type, value_type, operation, degree, records, runs, threads,
-            output_dir, config_name);
+            output_dir, config_name, data_path);
     } else {
         std::cerr << "Error: Unsupported key-value type combination: " 
                   << key_type << " -> " << value_type << std::endl;
@@ -122,6 +126,7 @@ void print_usage(const char* program_name) {
     std::cout << "  --threads <count>      Number of threads for concurrent operations (default: 1)\n";
     std::cout << "  --output-dir <dir>     Output directory for CSV files (default: current directory)\n";
     std::cout << "  --config-name <name>   Configuration name for CSV logging (default: empty)\n";
+    std::cout << "  --data-path <path>     Data files directory (default: /home/skarim/Code/haldendb_ex/haldendb/benchmark/data)\n";
     std::cout << "  --help                 Show this help message\n";
     std::cout << "\nPositional Arguments (single mode):\n";
     std::cout << "  tree_type              Tree type (required)\n";
@@ -198,6 +203,9 @@ int main(int argc, char* argv[])
     // Get cache size (default to 100)
     int cache_size = args.count("cache-size") ? std::stoi(args["cache-size"]) : 100;
     
+    // Get cache percentage (default to 0.05 for 5%)
+    double cache_percentage = args.count("cache-percentage") ? std::stod(args["cache-percentage"]) : 0.05;
+    
     // Get page size (default to 4096)
     int page_size = args.count("page-size") ? std::stoi(args["page-size"]) : 4096;
     
@@ -213,6 +221,9 @@ int main(int argc, char* argv[])
     // Get config name parameter (default to empty)
     std::string config_name = args.count("config-name") ? args["config-name"] : "";
     
+    // Get data path parameter (default to hardcoded path)
+    std::string data_path = args.count("data-path") ? args["data-path"] : "/home/skarim/Code/haldendb_ex/haldendb/benchmark/data";
+    
     // Determine benchmark mode:
     // Full benchmark mode: no tree-type specified
     // Single benchmark mode: tree-type specified
@@ -221,7 +232,7 @@ int main(int argc, char* argv[])
         
         // Generate workloads if they don't exist
         std::cout << "Ensuring workload data files exist..." << std::endl;
-        workloadgenerator::generate_all_workloads();
+        workloadgenerator::generate_all_workloads(data_path);
         std::cout << "Workload generation completed." << std::endl;
         
         // Run full benchmark based on configuration
@@ -248,8 +259,8 @@ int main(int argc, char* argv[])
             }
             
             run_full_benchmark_suite(
-                cache_type, runs, output_dir, storage_type, cache_size, page_size, memory_size,
-                operations, degrees, record_counts, threads, config_name);
+                cache_type, runs, output_dir, storage_type, cache_size, cache_percentage, page_size, memory_size,
+                operations, degrees, record_counts, threads, config_name, data_path);
 #else
             std::cerr << "Error: Cache configuration not enabled. Please build with -D__TREE_WITH_CACHE__" << std::endl;
             return 1;
@@ -266,7 +277,7 @@ int main(int argc, char* argv[])
         
         // Generate workloads if they don't exist
         std::cout << "Ensuring workload data files exist..." << std::endl;
-        workloadgenerator::generate_all_workloads();
+        workloadgenerator::generate_all_workloads(data_path);
         std::cout << "Workload generation completed." << std::endl;
         
         // Default to cache configuration
@@ -279,8 +290,8 @@ int main(int argc, char* argv[])
         std::vector<size_t> record_counts = {100000, 500000};
         
         run_full_benchmark_suite(
-            "LRU", runs, "", "VolatileStorage", 100, 4096, 1073741824LL,
-            operations, degrees, record_counts, 1, "");
+            "LRU", runs, "", "VolatileStorage", 100, 0.05, 4096, 1073741824LL,
+            operations, degrees, record_counts, 1, "", data_path);
 #else
         std::cerr << "Error: Cache configuration not enabled. Please build with -D__TREE_WITH_CACHE__" << std::endl;
         return 1;
@@ -304,7 +315,7 @@ int main(int argc, char* argv[])
     
     // Generate workloads if they don't exist (needed for single configuration mode)
     std::cout << "Ensuring workload data files exist..." << std::endl;
-    workloadgenerator::generate_all_workloads();
+    workloadgenerator::generate_all_workloads(data_path);
     std::cout << "Workload generation completed." << std::endl;
     
     if (config == "bm_cache") {
@@ -312,8 +323,8 @@ int main(int argc, char* argv[])
         std::string output_dir = args.count("output-dir") ? args["output-dir"] : "";
         
         run_benchmark_for_types(
-            key_type, value_type, cache_type, storage_type, cache_size, page_size, memory_size,
-            operation, degree, records, runs, threads, output_dir, config_name);
+            key_type, value_type, cache_type, storage_type, cache_size, cache_percentage, page_size, memory_size,
+            operation, degree, records, runs, threads, output_dir, config_name, data_path);
 #else
         std::cerr << "Error: Cache configuration not enabled. Please build with -D__TREE_WITH_CACHE__" << std::endl;
         return 1;

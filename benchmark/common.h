@@ -242,40 +242,41 @@ public:
 // Benchmark result structure
 struct BenchmarkResult {
     std::string tree_type;
-    std::string cache_type;
+    std::string policy_name;  // renamed from cache_type
     std::string storage_type;
-    size_t cache_size;
+    std::string config_name;
+    double cache_size;
+    size_t cache_page_limit;
+    int thread_count;
+    std::string timestamp;
     std::string key_type;
     std::string value_type;
-    std::string operation;
-    size_t degree;
     size_t record_count;
-    int run_id;
-    int thread_count;
+    size_t degree;
+    std::string operation;
     Duration duration;
     double throughput_ops_sec;
-    std::string timestamp;
-    std::string config_name;
+    int test_run_id;  // renamed from run_id
     
 #ifdef __CACHE_COUNTERS__
     // Cache performance counters
     uint64_t cache_hits = 0;
     uint64_t cache_misses = 0;
-    uint64_t evictions = 0;
-    uint64_t dirty_evictions = 0;
-    double cache_hit_ratio = 0.0;
+    uint64_t cache_evictions = 0;  // renamed from evictions
+    uint64_t cache_dirty_evictions = 0;  // renamed from dirty_evictions
+    double cache_hit_rate = 0.0;  // renamed from cache_hit_ratio
 #endif //__CACHE_COUNTERS__
     
     BenchmarkResult() = default;
     
     BenchmarkResult(const std::string& tree, const std::string& cache, const std::string& storage,
-                   size_t cache_sz, const std::string& key, const std::string& value,
+                   double cache_sz, size_t cache_page_lim, const std::string& key, const std::string& value,
                    const std::string& op, size_t deg, size_t records, int run,
                    int threads, const Duration& dur, const std::string& config = "")
-        : tree_type(tree), cache_type(cache), storage_type(storage), cache_size(cache_sz),
-          key_type(key), value_type(value), operation(op), degree(deg), 
-          record_count(records), run_id(run), thread_count(threads), duration(dur),
-          throughput_ops_sec(calculate_throughput(records, dur)), config_name(config) {
+        : tree_type(tree), policy_name(cache), storage_type(storage), config_name(config), cache_size(cache_sz),
+          cache_page_limit(cache_page_lim), thread_count(threads), key_type(key), value_type(value), 
+          record_count(records), degree(deg), operation(op), duration(dur),
+          throughput_ops_sec(calculate_throughput(records, dur)), test_run_id(run) {
         
         // Generate timestamp
         auto now = std::chrono::system_clock::now();
@@ -290,19 +291,19 @@ struct BenchmarkResult {
 #ifdef __CACHE_COUNTERS__
     // Constructor with cache counters
     BenchmarkResult(const std::string& tree, const std::string& cache, const std::string& storage,
-                   size_t cache_sz, const std::string& key, const std::string& value,
+                   double cache_sz, size_t cache_page_lim, const std::string& key, const std::string& value,
                    const std::string& op, size_t deg, size_t records, int run,
                    int threads, const Duration& dur, const std::string& config,
                    uint64_t hits, uint64_t misses, uint64_t evict, uint64_t dirty_evict)
-        : tree_type(tree), cache_type(cache), storage_type(storage), cache_size(cache_sz),
-          key_type(key), value_type(value), operation(op), degree(deg), 
-          record_count(records), run_id(run), thread_count(threads), duration(dur),
-          throughput_ops_sec(calculate_throughput(records, dur)), config_name(config),
-          cache_hits(hits), cache_misses(misses), evictions(evict), dirty_evictions(dirty_evict) {
+        : tree_type(tree), policy_name(cache), storage_type(storage), config_name(config), cache_size(cache_sz),
+          cache_page_limit(cache_page_lim), thread_count(threads), key_type(key), value_type(value), 
+          record_count(records), degree(deg), operation(op), duration(dur),
+          throughput_ops_sec(calculate_throughput(records, dur)), test_run_id(run),
+          cache_hits(hits), cache_misses(misses), cache_evictions(evict), cache_dirty_evictions(dirty_evict) {
         
         // Calculate cache hit ratio
         uint64_t total_accesses = cache_hits + cache_misses;
-        cache_hit_ratio = total_accesses > 0 ? static_cast<double>(cache_hits) / total_accesses : 0.0;
+        cache_hit_rate = total_accesses > 0 ? static_cast<double>(cache_hits) / total_accesses : 0.0;
         
         // Generate timestamp
         auto now = std::chrono::system_clock::now();
@@ -330,7 +331,7 @@ inline void clear_system_cache() {
 
 // Validation utilities
 inline bool validate_cache_type(const std::string& cache_type) {
-    return cache_type == "LRU" || cache_type == "SSARC" || cache_type == "CLOCK";
+    return cache_type == "LRU" || cache_type == "A2Q" || cache_type == "CLOCK";
 }
 
 inline bool validate_storage_type(const std::string& storage_type) {
